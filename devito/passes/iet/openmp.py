@@ -3,13 +3,13 @@ import os
 
 import numpy as np
 import cgen as c
-from sympy import Or, Max, Not
+from sympy import And, Max, Not
 
 from devito.ir import (DummyEq, Conditional, Block, Expression, ExpressionBundle, List,
-                       Prodder, Iteration, While, FindSymbols, FindNodes, Return,
+                       Prodder, Iteration, While, FindSymbols, FindNodes,
                        COLLAPSED, VECTORIZED, Transformer, IsPerfectIteration,
                        retrieve_iteration_tree, filter_iterations)
-from devito.symbolics import CondEq, DefFunction, INT
+from devito.symbolics import CondEq, CondNe, DefFunction, INT
 from devito.parameters import configuration
 from devito.passes.iet.engine import iet_pass
 from devito.tools import as_tuple, is_integer, prod
@@ -385,13 +385,15 @@ class Ompizer(object):
         return ParallelRegion(partree, partree.nthreads, private)
 
     def _make_guard(self, partree, collapsed):
-        # Do not enter the parallel region if the step increment is 0; this
-        # would raise a `Floating point exception (core dumped)` in some OpenMP
-        # implementations. Note that using an OpenMP `if` clause won't work
-        cond = [CondEq(i.step, 0) for i in collapsed if isinstance(i.step, Symbol)]
-        cond = Or(*cond)
+        # Do not enter the parallel region if the step increment is 0 or has
+        # zero length; this would raise a `Floating point exception (core
+        # dumped)` in some OpenMP implementations. Note that using an OpenMP
+        # `if` clause won't work
+        cond = [CondNe(i.step, 0) for i in collapsed if isinstance(i.step, Symbol)]
+        cond += [i.symbolic_size > 0 for i in collapsed if hasattr(i, "symbolic_size")]
+        cond = And(*cond)
         if cond != False:  # noqa: `cond` may be a sympy.False which would be == False
-            partree = List(body=[Conditional(cond, Return()), partree])
+            partree = List(body=[Conditional(cond, partree)])
         return partree
 
     def _make_nested_partree(self, partree):
