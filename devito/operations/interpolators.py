@@ -6,8 +6,8 @@ from cached_property import cached_property
 
 from devito.finite_differences import Evaluable
 from devito.logger import warning
-from devito.symbolics import retrieve_function_carriers, indexify, INT
-from devito.tools import powerset, flatten, prod
+from devito.symbolics import retrieve_function_carriers, retrieve_functions, indexify, INT
+from devito.tools import powerset, flatten, prod, as_list
 from devito.types import Eq, Inc
 from devito.types.basic import Scalar
 from devito.types.dense import SubFunction
@@ -232,6 +232,21 @@ class LinearInterpolator(GenericInterpolator):
             idx_subs, temps = self._interpolation_indices(variables, offset,
                                                           field_offset=field_offset)
 
+            # FIXME: Maybe needs a re-think wrt placement?
+            # NOTE: Probably other better approaches available
+            # Add idx_subs for `Function`'s on `SubDomain`'s
+            add_subs = []
+            fosd = set([f for f in retrieve_functions(expr, mode='unique')
+                        if f.is_Function and f._subdomain])
+            if len(fosd) > 1:
+                raise NotImplementedError
+            for f in fosd:
+                dims = f._subdomain.dimensions
+                for i in idx_subs:
+                    add_subs.append({k: v.subs({d: v for d, v in zip(dims, i.values())})
+                                     for k, v in f._subdomain._access_map.items()})
+                idx_subs = add_subs
+
             # Substitute coordinate base symbols into the interpolation coefficients
             args = [_expr.xreplace(v_sub) * b.xreplace(v_sub)
                     for b, v_sub in zip(self._interpolation_coeffs, idx_subs)]
@@ -278,11 +293,26 @@ class LinearInterpolator(GenericInterpolator):
             # List of indirection indices for all adjacent grid points
             idx_subs, temps = self._interpolation_indices(variables, offset,
                                                           field_offset=field_offset)
+            add_subs = []
+            fosd = set([f for f in as_list(field) if f.is_Function and f._subdomain])
+            if len(fosd) > 1:
+                raise NotImplementedError
+            for f in fosd:
+                dims = f._subdomain.dimensions
+                for i in idx_subs:
+                    add_subs.append({k: v.subs({d: v for d, v in zip(dims, i.values())})
+                                     for k, v in f._subdomain._access_map.items()})
 
             # Substitute coordinate base symbols into the interpolation coefficients
-            eqns = [Inc(field.xreplace(vsub), _expr.xreplace(vsub) * b,
-                        implicit_dims=self.sfunction.dimensions)
-                    for b, vsub in zip(self._interpolation_coeffs, idx_subs)]
+            if add_subs:
+                eqns = [Inc(field.xreplace(asub), _expr.xreplace(vsub) * b,
+                            implicit_dims=self.sfunction.dimensions)
+                        for b, asub, vsub in zip(self._interpolation_coeffs,
+                                                 add_subs, idx_subs)]
+            else:
+                eqns = [Inc(field.xreplace(vsub), _expr.xreplace(vsub) * b,
+                            implicit_dims=self.sfunction.dimensions)
+                        for b, vsub in zip(self._interpolation_coeffs, idx_subs)]
 
             return temps + eqns
 
