@@ -6,7 +6,12 @@ import numpy as np
 
 from mpmath.libmp import prec_to_dps, to_str
 from sympy.printing.precedence import precedence
-from sympy.printing.ccode import C99CodePrinter
+try:
+    # sympy 1.7
+    from sympy.printing.c import C99CodePrinter
+except ImportError:
+    # sympy 1.5
+    from sympy.printing.ccode import C99CodePrinter
 
 __all__ = ['ccode']
 

@@ -1,6 +1,6 @@
 pip>=9.0.1
 numpy>1.16
-sympy<1.6
+sympy>=1.5.1,!=1.6
 scipy
 flake8>=2.1.0
 nbval

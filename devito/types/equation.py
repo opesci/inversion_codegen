@@ -1,7 +1,6 @@
 """User API to specify equations."""
 
 import sympy
-from sympy.solvers.solveset import linear_coeffs
 
 from cached_property import cached_property
 
@@ -242,8 +241,8 @@ def solve(eq, target, **kwargs):
     for e, t in zip(as_tuple(eq), as_tuple(target)):
         # Try first linear solver
         try:
-            cc = linear_coeffs(e._eval_at(t).evaluate, t)
-            sols.append(-cc[1]/cc[0])
+            sol, = sympy.linsolve([e._eval_at(t).evaluate], t)
+            sols.append(sol[0])
         except ValueError:
             warning("Equation is not affine w.r.t the target, falling back to standard"
                     "sympy.solve that may be slow")

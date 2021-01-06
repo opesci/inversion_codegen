@@ -2,7 +2,7 @@ import gc
 import weakref
 
 import sympy
-from sympy import cache
+from sympy.core import cache
 
 
 __all__ = ['Cached', '_SymbolCache', 'CacheManager']
