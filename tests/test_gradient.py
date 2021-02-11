@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from numpy import linalg
 
-from devito import Function, info, TimeFunction, Operator, Eq
+from devito import Function, info, TimeFunction, Operator, Eq, ConditionalDimension
 from devito.parameters import switchconfig
 from examples.seismic.acoustic.acoustic_example import smooth, acoustic_setup as setup
 from examples.seismic.acoustic.operators import iso_stencil
@@ -138,6 +138,143 @@ class TestGradient(object):
 
         assert(np.allclose(grad_u.data, grad_v.data, rtol=tolerance, atol=tolerance))
         assert(np.allclose(grad_u.data, grad_uv.data, rtol=tolerance, atol=tolerance))
+
+    @pytest.mark.parametrize('tn', [750.])
+    @pytest.mark.parametrize('spacing', [(10, 10)])
+    @pytest.mark.parametrize("dtype, tolerance", [(np.float32, 1e-4),
+                                                  (np.float64, 1e-12)])
+    @pytest.mark.parametrize('nbl', [40])
+    @pytest.mark.parametrize('preset', ['layers-isotropic'])
+    @pytest.mark.parametrize('space_order', [4])
+    @pytest.mark.parametrize('kernel', ['OT2'])
+    @pytest.mark.parametrize('shape', [(101, 101)])
+    def test_gradient_subsampling(self, shape, kernel, space_order, preset, nbl, dtype,
+                                  tolerance, spacing, tn):
+        """ This test asserts that the gradient calculated after subsampling in time should
+            match the gradient calculated without this subsampling.
+
+        """
+        model = demo_model(preset, space_order=space_order, shape=shape, nbl=nbl,
+                           dtype=dtype, spacing=spacing)
+        m = model.m
+        v_true = model.vp
+        v0 = Function(name='v0', grid=model.grid, space_order=space_order,
+                      dtype=dtype)
+        smooth(v0, model.vp)
+
+        # 1) Base case
+        geometry_base = setup_geometry(model, tn)
+        dt_base = model.critical_dt
+        src_base = geometry_base.src
+        rec_base = geometry_base.rec
+        rec_true_base = geometry_base.rec
+        rec0_base = geometry_base.rec
+        s = model.grid.stepping_dim.spacing
+        u_base = TimeFunction(name='u', grid=model.grid, time_order=2,
+                              space_order=space_order, save=geometry_base.nt)
+
+        eqn_fwd_base = iso_stencil(u_base, model, kernel)
+        src_term_base = src_base.inject(field=u_base.forward, expr=src_base * s**2 / m)
+        rec_term_base = rec_base.interpolate(expr=u_base)
+
+        fwd_op_base = Operator(eqn_fwd_base + src_term_base + rec_term_base,
+                               subs=model.spacing_map, name='ForwardBase')
+
+        grad_base = Function(name='gradbase', grid=model.grid)
+
+        v = TimeFunction(name='v', grid=model.grid, save=None, time_order=2,
+                         space_order=space_order)
+        s = model.grid.stepping_dim.spacing
+
+        eqn_adj = iso_stencil(v, model, kernel, forward=False)
+        receivers_base = rec_base.inject(field=v.backward, expr=rec_base * s**2 / m)
+
+        gradient_update_base = Eq(grad_base, grad_base - u_base * v.dt2)
+        grad_op_base = Operator(eqn_adj + receivers_base + [gradient_update_base],
+                                subs=model.spacing_map, name='GradientBase')
+        fwd_op_base.apply(dt=dt_base, vp=v_true, rec=rec_true_base)
+        u_base.data[:] = 0.
+        fwd_op_base.apply(dt=dt_base, vp=v0, rec=rec0_base)
+
+        residual_base = Receiver(name='rec', grid=model.grid,
+                                 data=(rec0_base.data - rec_true_base.data),
+                                 time_range=geometry_base.time_axis,
+                                 coordinates=geometry_base.rec_positions, dtype=dtype)
+        grad_op_base.apply(dt=dt_base, vp=v0, rec=residual_base)
+
+        # 2) Case 2t: Run with dt/2 with no subsampling
+        geometry_2t = geometry_base.resample(dt_base/2)
+        dt_2t = geometry_2t.dt
+        src_2t = geometry_2t.src
+        rec_2t = geometry_2t.rec
+        rec_true_2t = geometry_base.rec
+        rec0_2t = geometry_base.rec
+        u_2t = TimeFunction(name='u', grid=model.grid, time_order=2,
+                            space_order=space_order, save=geometry_2t.nt)
+        eqn_fwd_2t = iso_stencil(u_2t, model, kernel)
+        src_term_2t = src_2t.inject(field=u_2t.forward, expr=src_2t * s**2 / m)
+        rec_term_2t = rec_2t.interpolate(expr=u_2t)
+
+        fwd_op_2t = Operator(eqn_fwd_2t + src_term_2t + rec_term_2t,
+                             subs=model.spacing_map, name='Forward2t')
+
+        grad_2t = Function(name='grad2t', grid=model.grid)
+        v.data[:] = 0.
+        receivers_2t = rec_2t.inject(field=v.backward, expr=rec_2t * s**2 / m)
+        gradient_update_2t = Eq(grad_2t, grad_2t - u_2t * v.dt2)
+        grad_op_2t = Operator(eqn_adj + receivers_2t + [gradient_update_2t],
+                              subs=model.spacing_map, name='Gradient2t')
+
+        fwd_op_2t.apply(dt=dt_2t, vp=v_true, rec=rec_true_2t)
+        u_2t.data[:] = 0.
+        fwd_op_2t.apply(dt=dt_2t, vp=v0, rec=rec0_2t)
+
+        residual_2t = Receiver(name='rec', grid=model.grid,
+                               data=(rec0_2t.data - rec_true_2t.data),
+                               time_range=geometry_2t.time_axis,
+                               coordinates=geometry_2t.rec_positions, dtype=dtype)
+        grad_op_2t.apply(dt=dt_2t, vp=v0, rec=residual_2t)
+
+        # 3) Case sub(sampling): Run with dt/2 and subsampling
+        u_sub = TimeFunction(name='u', grid=model.grid, time_order=2,
+                             space_order=space_order, save=None)
+        time_subsampled = ConditionalDimension('t_sub', parent=model.grid.time_dim,
+                                               factor=2)
+        usave = TimeFunction(name='usave', grid=model.grid, time_order=2,
+                             space_order=space_order, save=int(geometry_2t.nt/2),
+                             time_dim=time_subsampled)
+        eqn_fwd_sub = iso_stencil(u_sub, model, kernel)
+        dt_sub = dt_2t
+        src_sub = geometry_2t.src
+        rec_sub = geometry_2t.rec
+        rec_true_sub = geometry_base.rec
+        rec0_sub = geometry_base.rec
+        src_term_sub = src_sub.inject(field=u_sub.forward, expr=src_sub * s**2 / m)
+        rec_term_sub = rec_sub.interpolate(expr=u_sub)
+        saveq = Eq(usave, u_sub)
+
+        fwd_op_sub = Operator(eqn_fwd_sub + src_term_sub + rec_term_sub + [saveq],
+                              subs=model.spacing_map, name='Forwardsub')
+
+        grad_sub = Function(name='gradsub', grid=model.grid)
+        v.data[:] = 0.
+        receivers_sub = rec_sub.inject(field=v.backward, expr=rec_sub * s**2 / m)
+        gradient_update_sub = Eq(grad_sub, grad_sub - usave * v.dt2)
+        grad_op_sub = Operator(eqn_adj + receivers_sub + [gradient_update_sub],
+                               subs=model.spacing_map, name='Gradientsub')
+
+        fwd_op_sub.apply(dt=dt_sub, vp=v_true, rec=rec_true_sub)
+        u_sub.data[:] = 0.
+        fwd_op_sub.apply(dt=dt_sub, vp=v0, rec=rec0_sub)
+
+        residual_sub = Receiver(name='rec', grid=model.grid,
+                                data=(rec0_sub.data - rec_true_sub.data),
+                                time_range=geometry_2t.time_axis,
+                                coordinates=geometry_2t.rec_positions, dtype=dtype)
+        grad_op_sub.apply(dt=dt_sub, vp=v0, rec=residual_sub)
+
+        assert(np.allclose(grad_base.data, grad_2t.data, rtol=tolerance, atol=tolerance))
+        assert(np.allclose(grad_base.data, grad_sub.data, rtol=tolerance, atol=tolerance))
 
     @pytest.mark.parametrize('dtype', [np.float32, np.float64])
     @pytest.mark.parametrize('space_order', [4])
