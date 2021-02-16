@@ -6,7 +6,8 @@ import sympy
 from devito.finite_differences.finite_difference import (generic_derivative,
                                                          first_derivative,
                                                          cross_derivative)
-from devito.finite_differences.differentiable import Differentiable, EvalDiffDerivative
+from devito.finite_differences.differentiable import (Differentiable, EvalDiffDerivative,
+                                                      diffify)
 from devito.finite_differences.tools import direct, transpose
 from devito.tools import as_mapper, as_tuple, filter_ordered, frozendict
 from devito.types.utils import DimensionTuple
@@ -91,7 +92,10 @@ class Derivative(sympy.Derivative, Differentiable):
         if type(expr) == sympy.Derivative:
             raise ValueError("Cannot nest sympy.Derivative with devito.Derivative")
         if not isinstance(expr, Differentiable):
-            raise ValueError("`expr` must be a Differentiable object")
+            try:
+                expr = diffify(expr)
+            except:
+                raise ValueError("`expr` must be a Differentiable object")
 
         new_dims, orders, fd_o, var_count = cls._process_kwargs(expr, *dims, **kwargs)
 
@@ -198,7 +202,7 @@ class Derivative(sympy.Derivative, Differentiable):
         _kwargs = {'deriv_order': self.deriv_order, 'fd_order': self.fd_order,
                    'side': self.side, 'transpose': self.transpose, 'subs': self._subs,
                    'x0': self.x0, 'preprocessed': True}
-        expr = kwargs.pop('expr', self.expr)
+        expr = diffify(kwargs.pop('expr', self.expr))
         _kwargs.update(**kwargs)
         return Derivative(expr, *self.dims, **_kwargs)
 
@@ -214,6 +218,7 @@ class Derivative(sympy.Derivative, Differentiable):
             rules = dict(*args)
         except TypeError:
             rules = dict((args,))
+        kwargs.pop('simultaneous', None)
         return self.xreplace(rules, **kwargs)
 
     def _xreplace(self, subs):
@@ -222,7 +227,12 @@ class Derivative(sympy.Derivative, Differentiable):
         substitutions until evaluation.
         """
         subs = self._subs + (subs,)  # Postponed substitutions
-        return self._new_from_self(subs=subs), True
+        try:
+            return self._new_from_self(subs=subs), True
+        except (KeyError, AttributeError):
+            # This is the case during solve where subs is a sympy.core.rule
+            # that is not recognized by the constructor
+            return self, False
 
     @property
     def _metadata(self):

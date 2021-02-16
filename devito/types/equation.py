@@ -241,8 +241,8 @@ def solve(eq, target, **kwargs):
     for e, t in zip(as_tuple(eq), as_tuple(target)):
         # Try first linear solver
         try:
-            sol, = sympy.linsolve([e._eval_at(t).evaluate], t)
-            sols.append(sol[0])
+            sol = list(sympy.linsolve([eval_t(e)], [t]))
+            sols.append(sol[0][0])
         except ValueError:
             warning("Equation is not affine w.r.t the target, falling back to standard"
                     "sympy.solve that may be slow")
@@ -254,3 +254,17 @@ def solve(eq, target, **kwargs):
         return target.new_from_mat(sols)
     else:
         return sols[0]
+
+
+def eval_t(expr):
+    """
+    Evaluate all time derivatives in the expression
+    """
+    try:
+        assert any(d.is_Time for d in expr.dims)
+        return expr.evaluate
+    except:
+        try:
+            return expr.func(*[eval_t(a) for a in expr.args])
+        except:
+            return expr
