@@ -108,3 +108,19 @@ def test_canonical_ordering(expr, expected):
         expected[n] = eval(i)
 
     assert retrieve_indexed(expr) == expected
+
+
+def test_solve_time():
+    """
+    Tests that solves only evaluate the time derivative
+    """
+    grid = Grid(shape=(11, 11))
+    u = TimeFunction(name="u", grid=grid, time_order=2, space_order=4)
+    m = Function(name="m", grid=grid, space_order=4)
+    dt = grid.time_dim.spacing
+    eq = m * u.dt2 + u.dx
+    sol = solve(eq, u.forward)
+    # Check u.dx is not evaluated. Need to simplify because the solution
+    # contains some Dummy in the Derivatibe subs that make equality break.
+    assert sympy.simplify(u.dx - sol.args[2].args[3]) == 0
+    assert sympy.simplify(sol - (-dt**2*u.dx/m + 2.0*u - u.backward)) == 0

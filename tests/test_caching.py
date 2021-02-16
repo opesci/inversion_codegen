@@ -749,7 +749,7 @@ class TestMemoryLeaks(object):
         # to u(t + dt), u(x - h_x) and u(x + h_x) that have to be cleared.
         # Then `u` points to the various Dimensions, the Dimensions point to the various
         # spacing symbols, hence, we need four sweeps to clear up the cache.
-        assert len(_SymbolCache) == 16
+        assert len(_SymbolCache) == 14
         clear_cache()
         assert len(_SymbolCache) == 9
         clear_cache()

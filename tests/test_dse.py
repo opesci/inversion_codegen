@@ -2108,12 +2108,12 @@ class TestIsoAcoustic(object):
         assert len(op0._func_table) == 0
         assert len(op1._func_table) == 1  # due to loop blocking
 
-        assert summary0[('section0', None)].ops == 50
+        assert summary0[('section0', None)].ops == 46
         assert summary0[('section1', None)].ops == 151
-        assert np.isclose(summary0[('section0', None)].oi, 2.851, atol=0.001)
+        assert np.isclose(summary0[('section0', None)].oi, 2.623, atol=0.001)
 
-        assert summary1[('section0', None)].ops == 33
-        assert np.isclose(summary1[('section0', None)].oi, 1.882, atol=0.001)
+        assert summary1[('section0', None)].ops == 29
+        assert np.isclose(summary1[('section0', None)].oi, 1.654, atol=0.001)
 
         assert np.allclose(u0.data, u1.data, atol=10e-5)
         assert np.allclose(rec0.data, rec1.data, atol=10e-5)
