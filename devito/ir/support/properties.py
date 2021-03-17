@@ -81,3 +81,7 @@ def normalize_properties(*args):
         properties.update(p - drop)
 
     return properties
+
+
+def relax_properties(properties):
+    return frozenset(properties - {PARALLEL_INDEP, ROUNDABLE})

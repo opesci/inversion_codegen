@@ -881,8 +881,8 @@ class TestCodeGeneration(object):
         assert len(calls) == 1
 
         # Also make sure the Call is at the right place in the IET
-        assert op.body[-1].body[0].body[0].body[0].body[0].body[0].is_Call
-        assert op.body[-1].body[0].body[0].body[0].body[1].is_Iteration
+        assert op.body[-1].body[1].body[0].body[0].body[0].body[0].is_Call
+        assert op.body[-1].body[1].body[0].body[0].body[1].is_Iteration
 
     @pytest.mark.parallel(mode=2)
     def test_unhoist_haloupdate_if_invariant(self):
@@ -1102,7 +1102,7 @@ class TestCodeGeneration(object):
         ]
 
         for eq in cases:
-            op = Operator(eq, opt=('advanced', {'cire-mincost-sops': 1}))
+            op = Operator(eq, opt=('advanced', {'cire-mingain': 1}))
 
             calls = [i for i in FindNodes(Call).visit(op)
                      if isinstance(i, HaloUpdateCall)]
@@ -1820,10 +1820,10 @@ class TestOperatorAdvanced(object):
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u.data_with_halo[:] = 0.
 
-        eqn = Eq(u.forward, ((u[t, x, y] + u[t, x+1, y+1])*3*f +
-                             (u[t, x+2, y+2] + u[t, x+3, y+3])*3*f + 1))
+        eqn = Eq(u.forward, ((u[t, x, y] + u[t, x+1, y+1])*3.*f +
+                             (u[t, x+2, y+2] + u[t, x+3, y+3])*3.*f + 1))
         op0 = Operator(eqn, opt='noop')
-        op1 = Operator(eqn, opt=('advanced', {'cire-mincost-sops': 1}))
+        op1 = Operator(eqn, opt=('advanced', {'cire-mingain': 1}))
 
         op0(time_M=1)
         u0_norm = norm(u)
@@ -1851,10 +1851,10 @@ class TestOperatorAdvanced(object):
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u.data_with_halo[:] = 0.
 
-        eqn = Eq(u.forward, ((u[t, x, y] + u[t, x+2, y])*3*f +
-                             (u[t, x+1, y+1] + u[t, x+3, y+1])*3*f + 1))
+        eqn = Eq(u.forward, ((u[t, x, y] + u[t, x+2, y])*3.*f +
+                             (u[t, x+1, y+1] + u[t, x+3, y+1])*3.*f + 1))
         op0 = Operator(eqn, opt='noop')
-        op1 = Operator(eqn, opt=('advanced', {'cire-mincost-sops': 1}))
+        op1 = Operator(eqn, opt=('advanced', {'cire-mingain': 1}))
 
         op0(time_M=1)
         u0_norm = norm(u)

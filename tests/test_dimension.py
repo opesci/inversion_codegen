@@ -924,7 +924,7 @@ class TestConditionalDimension(object):
         eqns = [Eq(u.forward, u + 1, subdomain=grid.interior),
                 Eq(u.forward, u.dx.dx + 1., implicit_dims=[cond])]
 
-        op = Operator(eqns, opt=('advanced-fsg', {'cire-mincost-sops': 1}))
+        op = Operator(eqns, opt=('advanced-fsg', {'cire-mingain': 1}))
 
         conds = FindNodes(Conditional).visit(op)
         assert len(conds) == 1
@@ -1181,9 +1181,9 @@ class TestMashup(object):
         assert exprs[1].write is g
 
         exprs = FindNodes(Expression).visit(op._func_table['bf1'].root)
-        assert len(exprs) == 3
-        assert exprs[1].write is fsave
-        assert exprs[2].write is gsave
+        assert len(exprs) == 2
+        assert exprs[0].write is fsave
+        assert exprs[1].write is gsave
 
         exprs = FindNodes(Expression).visit(op._func_table['bf2'].root)
         assert len(exprs) == 1
@@ -1217,7 +1217,7 @@ class TestMashup(object):
         # in the same loop nest with the fsave equation
         assert len(op._func_table) == 2
         assert len(FindNodes(Expression).visit(op._func_table['bf0'].root)) == 3
-        assert len(FindNodes(Expression).visit(op._func_table['bf1'].root)) == 2 + 1  # r0
+        assert len(FindNodes(Expression).visit(op._func_table['bf1'].root)) == 2
 
     def test_topofusion_w_subdims_conddims_v3(self):
         """
@@ -1227,7 +1227,7 @@ class TestMashup(object):
         grid = Grid(shape=(4, 4, 4))
         time = grid.time_dim
 
-        f = TimeFunction(name='f', grid=grid, time_order=2)
+        f = TimeFunction(name='f', grid=grid, time_order=2, space_order=4)
         g = TimeFunction(name='g', grid=grid, time_order=2)
         h = TimeFunction(name='h', grid=grid, time_order=2)
         fsave = TimeFunction(name='fsave', grid=grid, time_order=2, save=5)
@@ -1253,9 +1253,9 @@ class TestMashup(object):
         assert exprs[1].write is g
 
         exprs = FindNodes(Expression).visit(op._func_table['bf1'].root)
-        assert len(exprs) == 3
-        assert exprs[1].write is fsave
-        assert exprs[2].write is gsave
+        assert len(exprs) == 2
+        assert exprs[0].write is fsave
+        assert exprs[1].write is gsave
 
         exprs = FindNodes(Expression).visit(op._func_table['bf2'].root)
         assert len(exprs) == 2
