@@ -88,6 +88,45 @@ def cire(clusters, mode, sregistry, options, platform):
     else:
         assert False, "Unknown CIRE mode `%s`" % mode
 
+    # 1) Two Queue subclasses -- one for invariants one for sops
+    # 2) Each queue has a series of modes -- two (inv-basic, inv-compound) for
+    #    invariants, one for sops
+    # 3) Within the queue callback, we iterate over the modes, create the variants,
+    #    pick the best, etc. We return the sequence of edited clusters
+    # 4) within each mode:
+    #    4a) we call the mode's extract() function, which takes
+    #        as input the sequence of `expressions` within the current `prefix`,
+    #        and I think the `exclude` as well?
+    # So the idea is:
+    #
+    #   FOR SOPS:
+    #   def callback(self, clusters, prefix):  # here there will be only one cluster
+    #       if prefix:
+    #         return clusters
+    #       else:
+    #         return super().callback(clusters)
+    #
+    #   FOR INVARIANTS
+    #   ...
+    #
+    #   IN THE SUPERCLASS:
+    #   def process(self, clusters):
+    #       use fatd recursion so that the outer hoisting candidates are processed first
+    #   def callback(self, clusters, prefix):
+    #       exclude = ...
+    #       variants = []
+    #       for m in self.modes:
+    #         score = 0
+    #         aliases = AliasMapper()
+    #         groups = groupby(clusters, ...) # such that they have same INNER
+    #                                         # ispace and properties (reuse Queue._key??)
+    #         for g in groups:
+    #           ispace, properties = key
+    #           exprs = flatten(c.exprs for c in g)
+    #           for n in range(m._repeats(cluster)):
+    #             mapper = m._extract(...)
+    #           self.make_schedule(exprs, exclude, ispace, properties)
+
     processed = []
     for c in clusters:
         # We don't care about sparse Clusters. Their computational cost is
