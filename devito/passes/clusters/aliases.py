@@ -84,173 +84,11 @@ def cire(clusters, mode, sregistry, options, platform):
     return modes[mode](sregistry, options, platform).process(clusters)
 
 
-modes = {
-    'invariants': CireInvariants,
-    'sops', CireSops,
-}
-
-
-class CireQueue(Queue):
-
-    space = ()
-    """
-    A CireQueue produces, for a given sub-sequence of Clusters, one variant
-    for each space point. Different variants have different memory/flops trade-offs.
-    """
-
-    def __init__(self, sregistry, options, platform):
-        self.sregistry = sregistry
-        self.platform = platform
-
-        self.makers = [maker(options) for maker in self.space]
-
-    def process(self, clusters):
-        return self._process_fatd(clusters, 1)
-
-    def _make(self, clusters, exclude=None):
-        #TODO: pull exprs and ispace from clusters
-
-        variants = []
-        for m in self.makers:
-            # Capture aliases within `exprs`
-            aliases = AliasMapper()
-            score = 0
-            exprs = cluster.exprs
-            ispace = cluster.ispace
-            for n in range(self._nrepeats(cluster)):
-                # Extract potentially aliasing expressions
-                mapper = self._extract(exprs, exclude, n)
-
-                # Search aliasing expressions
-                found = collect(mapper.extracted, ispace, self._opt_minstorage)
-
-                # Choose the aliasing expressions with a good flops/memory trade-off
-                exprs, chosen, pscore = choose(found, exprs, mapper, self._selector)
-                aliases.update(chosen)
-                score += pscore
-
-            # AliasMapper -> Schedule
-            schedule = lower_aliases(cluster, aliases, self._in_writeto, self._opt_maxpar)
-
-            # The actual score is a 2-tuple <flop-reduction-score, workin-set-score>
-            score = (score, len(aliases))
-
-            variants.append(SpacePoint(schedule, exprs, score))
-        #TODO: WHAT ABOUT THE ONE BELOW??
-        #if not any(i.schedule for i in variants):
-        #    return [cluster]
-
-        # Pick the variant with the highest score, that is the variant with the best
-        # trade-off between operation count reduction and working set size increase
-        schedule, exprs = pick_best(variants)
-
-        # Schedule -> [Clusters]
-        schedule = optimize_schedule(cluster, schedule, platform, sregistry, options)
-        clusters, subs = lower_schedule(cluster, schedule, sregistry, options)
-
-        #TODO: replace with something like:
-        #processed = [rebuild(c, expr
-        #TODO: BUT... WTF is exprs now...
-        #clusters.append(rebuild(cluster, exprs, subs, schedule))
-
-        return clusters
-        from IPython import embed; embed()
-
-
-class CireInvariants(CireQueue):
-
-    space = (SMInvariantsBasic, SMInvariantsCompound)
-
-    def callback(self, clusters, prefix):
-        if not prefix:
-            return clusters
-
-        # Rule out extractions that would break data dependencies
-        exclude = set().union(*[c.scope.writes for c in clusters])
-
-        # Rule out extractions that are *not* independent of the Dimension
-        # currently investigated
-        exclude.add(prefix[-1].dim)
-
-        processed = []
-        #TODO: group by clusters such that they have *compatible* iteration space...
-        #TODO 2: rule out non-dense clusters
-
-        processed, subs = self._make(clusters, exclude)
-
-        return []
-
-
-class CireSops(CireQueue):
-
-    space = (SMDerivatives,)
-
-    def process(self, clusters):
-        processed = []
-        for c in clusters:
-            # We don't care about sparse Clusters. Their computational cost is
-            # negligible and processing all of them would only increase compilation
-            # time and potentially make the generated code more chaotic
-            if not c.is_dense:
-                processed.append(c)
-                continue
-
-            # Rule out Dimension-independent dependencies, e.g.:
-            # r0 = ...
-            # u[x, y] = ... r0*a[x, y] ...
-            exclude = {i.source.indexed for i in c.scope.d_flow.independent()}
-
-            processed.extend(flatten(self.callback([c], exclude)))
-
-        return processed
-
-
-    # 1) Two Queue subclasses -- one for invariants one for sops
-    # 2) Each queue has a series of modes -- two (inv-basic, inv-compound) for
-    #    invariants, one for sops
-    # 3) Within the queue callback, we iterate over the modes, create the variants,
-    #    pick the best, etc. We return the sequence of edited clusters
-    # 4) within each mode:
-    #    4a) we call the mode's extract() function, which takes
-    #        as input the sequence of `expressions` within the current `prefix`,
-    #        and I think the `exclude` as well?
-    # So the idea is:
-    #
-    #   FOR SOPS:
-    #   def callback(self, clusters, prefix):  # here there will be only one cluster
-    #       if prefix:
-    #         return clusters
-    #       else:
-    #         return super().callback(clusters)
-    #
-    #   FOR INVARIANTS
-    #   ...
-    #
-    #   IN THE SUPERCLASS:
-    #   def process(self, clusters):
-    #       use fatd recursion so that the outer hoisting candidates are processed first
-    #   def callback(self, clusters, prefix):
-    #       exclude = ...
-    #       variants = []
-    #       for m in self.modes:
-    #         score = 0
-    #         aliases = AliasMapper()
-    #         groups = groupby(clusters, ...) # such that they have same INNER
-    #                                         # ispace and properties (reuse Queue._key??)
-    #         for g in groups:
-    #           ispace, properties = key
-    #           exprs = flatten(c.exprs for c in g)
-    #           for n in range(m._repeats(cluster)):
-    #             mapper = m._extract(...)
-    #           self.make_schedule(exprs, exclude, ispace, properties)
-
-
-class SpaceMaker(object):  #TODO: better name??
+class Mode(object):
 
     optname = None
 
     def __init__(self, options):
-        self._opt_minstorage = options['min-storage']
         self._opt_mincost = options['cire-mincost'][self.optname]
         self._opt_maxpar = options['cire-maxpar']
         self._opt_maxalias = options['cire-maxalias']
@@ -258,24 +96,28 @@ class SpaceMaker(object):  #TODO: better name??
         counter = generator()
         self._make_symbol = lambda: Symbol(name='dummy%d' % counter())
 
-    def _nrepeats(self, cluster):
+    def _nrepeats(self, exprs):
         raise NotImplementedError
 
     def _extract(self, exprs, exclude, n):
         raise NotImplementedError
 
-    def _in_writeto(self, dim, cluster):
+    #TODO: MOVE TO QUEUE CLASSES???? THESE ARE SCHEDULE RELATED THINGS, WHILE THE MODE SHOULD
+    # BE FOR THE EXTRACTION...
+    def _in_writeto(self, dim, properties):
         raise NotImplementedError
 
+    #TODO: MOVE TO QUEUE CLASSES???? THESE ARE SCHEDULE RELATED THINGS, WHILE THE MODE SHOULD
+    # BE FOR THE EXTRACTION...
     def _selector(self, e, naliases):
         raise NotImplementedError
 
 
-class SMInvariants(SpaceMaker):
+class ModeInvariants(Mode):
 
     optname = 'invariants'
 
-    def _nrepeats(self, cluster):
+    def _nrepeats(self, exprs):
         return 1
 
     def _rule(self, e):
@@ -292,8 +134,8 @@ class SMInvariants(SpaceMaker):
 
         return mapper
 
-    def _in_writeto(self, dim, cluster):
-        return PARALLEL in cluster.properties[dim]
+    def _in_writeto(self, dim, properties):
+        return PARALLEL in properties[dim]
 
     def _selector(self, e, naliases):
         if all(i.function.is_Symbol for i in e.free_symbols):
@@ -304,11 +146,11 @@ class SMInvariants(SpaceMaker):
         return estimate_cost(e, True)*naliases // mincost
 
 
-class SMInvariantsBasic(SMInvariants):
+class ModeInvariantsBasic(ModeInvariants):
     pass
 
 
-class SMInvariantsCompound(SMInvariants):
+class ModeInvariantsCompound(ModeInvariants):
 
     def _extract(self, exprs, exclude, n):
         extracted = super()._extract(exprs, exclude, n).extracted
@@ -329,14 +171,12 @@ class SMInvariantsCompound(SMInvariants):
         return mapper
 
 
-class SMDerivatives(SpaceMaker):
+class ModeDerivatives(Mode):
 
     optname = 'sops'
 
-    def _nrepeats(self, cluster):
-        # The `nrepeats` is calculated such that we analyze all potential derivatives
-        # in `cluster`
-        return potential_max_deriv_order(cluster.exprs)
+    def _nrepeats(self, exprs):
+        return potential_max_deriv_order(exprs)
 
     def _extract(self, exprs, exclude, n):
         mapper = Uxmapper()
@@ -366,14 +206,152 @@ class SMDerivatives(SpaceMaker):
 
         return mapper
 
-    def _in_writeto(self, dim, cluster):
-        return self._opt_maxpar and PARALLEL in cluster.properties[dim]
+    def _in_writeto(self, dim, properties):
+        return self._opt_maxpar and PARALLEL in properties[dim]
 
     def _selector(self, e, naliases):
         if naliases <= 1:
             return 0
         else:
             return estimate_cost(e, True)*naliases // self._opt_mincost
+
+
+class CireVisitor(Queue):
+
+    space = ()
+    """
+    A CireVisitor produces, for a given sub-sequence of Clusters, one variant
+    for each space point. Different variants have different memory/flops trade-offs.
+    """
+
+    def __init__(self, sregistry, options, platform):
+        self.sregistry = sregistry
+        self.platform = platform
+
+        self._opt_minstorage = options['min-storage']
+        self._opt_rotate = options['cire-rotate']
+        self._opt_ftemps = options['cire-ftemps']
+
+        self.makers = [maker(options) for maker in self.space]
+
+    def process(self, clusters):
+        return self._process_fatd(clusters, 1)
+
+    def _alias_key(self, cluster):
+        return (cluster.ispace.reset(), cluster.properties, cluster.dtype)
+
+    def _alias_from_exprs(self, exprs, exclude, ispace, properties, dtype):
+        variants = []
+        for m in self.makers:
+            # Capture aliases within `exprs`
+            aliases = AliasMapper()
+            score = 0
+            for n in range(m._nrepeats(exprs)):
+                # Extract potentially aliasing expressions
+                mapper = m._extract(exprs, exclude, n)
+
+                # Search aliasing expressions
+                found = collect(mapper.extracted, ispace, self._opt_minstorage)
+
+                # Choose the aliasing expressions with a good flops/memory trade-off
+                exprs, chosen, pscore = choose(found, exprs, mapper, m._selector)
+                aliases.update(chosen)
+                score += pscore  #TODO: ATTACH TO ALIASES
+
+            # AliasMapper -> Schedule
+            schedule = lower_aliases(aliases, ispace, properties, m)
+            if not schedule:
+                continue
+
+            # The actual score is a 2-tuple <flop-reduction-score, workin-set-score>
+            score = (score, len(aliases))
+
+            variants.append(SpacePoint(schedule, exprs, score))
+
+        # Pick the variant with the highest score, that is the variant with the best
+        # trade-off between operation count reduction and working set size increase
+        try:
+            schedule, exprs = pick_best(variants)
+        except IndexError:
+            return [], []
+
+        # Schedule -> [Clusters]
+        if self._opt_rotate:
+            schedule = optimize_schedule_rotations(schedule, self.sregistry)
+        schedule = optimize_schedule_padding(schedule, properties, dtype, self.platform)
+        clusters, subs = lower_schedule(schedule, properties, dtype,
+                                        self.sregistry, self._opt_ftemps)
+
+        #TODO: replace with something like:
+        #processed = [rebuild(c, expr
+        #TODO: BUT... WTF is exprs now...
+        #clusters.append(rebuild(cluster, exprs, subs, schedule))
+
+        return clusters
+
+
+class CireInvariants(CireVisitor):
+
+    space = (ModeInvariantsBasic, ModeInvariantsCompound)
+
+    def callback(self, clusters, prefix):
+        if not prefix:
+            return clusters
+
+        # Rule out extractions that would break data dependencies
+        exclude = set().union(*[c.scope.writes for c in clusters])
+
+        # Rule out extractions that are *not* independent of the Dimension
+        # currently investigated
+        exclude.add(prefix[-1].dim)
+
+        processed = list(clusters)
+        for k, group in groupby(clusters, key=self._alias_key):
+            g = list(group)
+
+            if any(not c.is_dense for c in g):
+                continue
+
+            exprs = flatten(c.exprs for c in g)
+            made = self._alias_from_exprs(exprs, exclude, *k)
+
+            for n, c in enumerate(g, -len(g)):
+                processed[processed.index(c)] = made.pop(n)
+            processed = made + processed
+
+        return processed
+
+
+class CireSops(CireVisitor):
+
+    space = (ModeDerivatives,)
+
+    def process(self, clusters):
+        processed = []
+        for c in clusters:
+            # We don't care about sparse Clusters. Their computational cost is
+            # negligible and processing all of them would only increase compilation
+            # time and potentially make the generated code more chaotic
+            if not c.is_dense:
+                processed.append(c)
+                continue
+
+            # Rule out Dimension-independent dependencies, e.g.:
+            # r0 = ...
+            # u[x, y] = ... r0*a[x, y] ...
+            exclude = {i.source.indexed for i in c.scope.d_flow.independent()}
+
+            made = self._alias_from_exprs(c.exprs, exclude, *self._alias_key(c))
+
+            processed.extend(flatten(made))
+
+        return processed
+
+
+modes = {
+    'invariants': CireInvariants,
+    'sops': CireSops,
+}
 
 
 def collect(extracted, ispace, min_storage):
@@ -603,7 +581,7 @@ def choose(aliases, exprs, mapper, selector):
     return exprs, retained, tot
 
 
-def lower_aliases(cluster, aliases, in_writeto, maxpar):
+def lower_aliases(aliases, ispace, properties, maker):
     """
     Create a Schedule from an AliasMapper.
     """
@@ -617,7 +595,7 @@ def lower_aliases(cluster, aliases, in_writeto, maxpar):
         writeto = []
         sub_iterators = {}
         indicess = [[] for _ in v.distances]
-        for i in cluster.ispace.intervals:
+        for i in ispace.intervals:
             try:
                 interval = imapper[i.dim]
             except KeyError:
@@ -627,7 +605,9 @@ def lower_aliases(cluster, aliases, in_writeto, maxpar):
 
             assert i.stamp >= interval.stamp
 
-            if not (writeto or interval != interval.zero() or in_writeto(i.dim, cluster)):
+            if not (writeto or
+                    interval != interval.zero() or
+                    maker._in_writeto(i.dim, properties)):
                 # The alias doesn't require a temporary Dimension along i.dim
                 intervals.append(i)
                 continue
@@ -637,12 +617,12 @@ def lower_aliases(cluster, aliases, in_writeto, maxpar):
             # `i.dim` is necessarily part of the write-to region, so
             # we have to adjust the Interval's stamp. For example, consider
             # `i=x[0,0]<1>` and `interval=x[-4,4]<0>`; here we need to
-            # use `<1>` as stamp, which is what appears in `cluster`
+            # use `<1>` as stamp, which is what appears in `ispace`
             interval = interval.lift(i.stamp)
 
             # We further bump the interval stamp if we were requested to trade
             # fusion for more collapse-parallelism
-            interval = interval.lift(interval.stamp + int(maxpar))
+            interval = interval.lift(interval.stamp + int(maker._opt_maxpar))
 
             writeto.append(interval)
             intervals.append(interval)
@@ -679,34 +659,22 @@ def lower_aliases(cluster, aliases, in_writeto, maxpar):
         writeto = IterationSpace(IntervalGroup(writeto), sub_iterators)
 
         # The alias iteration space
-        intervals = IntervalGroup(intervals, cluster.ispace.relations)
-        ispace = IterationSpace(intervals, cluster.sub_iterators, cluster.directions)
+        intervals = IntervalGroup(intervals, ispace.relations)
+        ispace = IterationSpace(intervals, ispace.sub_iterators, ispace.directions)
         ispace = ispace.augment(sub_iterators)
 
         processed.append(ScheduledAlias(alias, writeto, ispace, v.aliaseds, indicess))
 
     # The [ScheduledAliases] must be ordered so as to reuse as many of the
-    # `cluster`'s IterationIntervals as possible in order to honor the
+    # `ispace`'s IterationIntervals as possible in order to honor the
     # write-to region. Another fundamental reason for ordering is to ensure
     # deterministic code generation
-    processed = sorted(processed, key=lambda i: cit(cluster.ispace, i.ispace))
+    processed = sorted(processed, key=lambda i: cit(ispace, i.ispace))
 
     return Schedule(*processed, dmapper=dmapper)
 
 
-def optimize_schedule(cluster, schedule, platform, sregistry, options):
-    """
-    Rewrite the schedule for performance optimization.
-    """
-    if options['cire-rotate']:
-        schedule = _optimize_schedule_rotations(schedule, sregistry)
-
-    schedule = _optimize_schedule_padding(cluster, schedule, platform)
-
-    return schedule
-
-
-def _optimize_schedule_rotations(schedule, sregistry):
+def optimize_schedule_rotations(schedule, sregistry):
     """
     Transform the schedule such that the tensor temporaries "rotate" along
     the outermost Dimension. This trades a parallel Dimension for a smaller
@@ -780,7 +748,7 @@ def _optimize_schedule_rotations(schedule, sregistry):
     return Schedule(*processed, dmapper=schedule.dmapper, rmapper=rmapper)
 
 
-def _optimize_schedule_padding(cluster, schedule, platform):
+def optimize_schedule_padding(schedule, properties, dtype, platform):
     """
     Round up the innermost IterationInterval of the tensor temporaries IterationSpace
     to a multiple of the SIMD vector length. This is not always possible though (it
@@ -790,8 +758,8 @@ def _optimize_schedule_padding(cluster, schedule, platform):
     for i in schedule:
         try:
             it = i.ispace.itintervals[-1]
-            if ROUNDABLE in cluster.properties[it.dim]:
-                vl = platform.simd_items_per_reg(cluster.dtype)
+            if ROUNDABLE in properties[it.dim]:
+                vl = platform.simd_items_per_reg(dtype)
                 ispace = i.ispace.add(Interval(it.dim, 0, it.interval.size % vl))
             else:
                 ispace = i.ispace
@@ -803,12 +771,10 @@ def _optimize_schedule_padding(cluster, schedule, platform):
     return Schedule(*processed, dmapper=schedule.dmapper, rmapper=schedule.rmapper)
 
 
-def lower_schedule(cluster, schedule, sregistry, options):
+def lower_schedule(schedule, properties, dtype, sregistry, ftemps):
     """
     Turn a Schedule into a sequence of Clusters.
     """
-    ftemps = options['cire-ftemps']
-
     if ftemps:
         make = TempFunction
     else:
@@ -818,9 +784,7 @@ def lower_schedule(cluster, schedule, sregistry, options):
     clusters = []
     subs = {}
     for alias, writeto, ispace, aliaseds, indicess in schedule:
-        # Basic info to create the temporary that will hold the alias
         name = sregistry.make_name()
-        dtype = cluster.dtype
 
         if writeto:
             # The Dimensions defining the shape of Array
