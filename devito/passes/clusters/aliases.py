@@ -8,11 +8,11 @@ import numpy as np
 from devito.ir import (SEQUENTIAL, PARALLEL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
                        Forward, IterationInstance, IterationSpace, Interval, Cluster,
                        Queue, IntervalGroup, LabeledVector, detect_accesses,
-                       build_intervals, normalize_properties)
+                       build_intervals, normalize_properties, relax_properties)
 from devito.passes.clusters.utils import timed_pass
 from devito.symbolics import (Uxmapper, compare_ops, estimate_cost, q_constant,
                               q_leaf, retrieve_indexed, search, uxreplace)
-from devito.tools import as_tuple, flatten, generator, split
+from devito.tools import as_mapper, as_tuple, flatten, frozendict, generator, split
 from devito.types import (Array, TempFunction, Eq, Scalar, ModuloDimension,
                           CustomDimension, IncrDimension)
 
@@ -310,22 +310,27 @@ class CireInvariants(CireVisitor):
 
     space = (ModeInvariantsBasic, ModeInvariantsCompound)
 
-    def _alias_key(self, c):
-        return AliasKey(c.ispace.reset(), c.dspace.reset(), c.properties, None, c.dtype)
+    def _alias_key(self, c, d):
+        ispace = c.ispace.reset()
+        dintervals = c.dspace.intervals.drop(d).reset()
+        properties = frozendict({d: relax_properties(v) for d, v in c.properties.items()})
+        return AliasKey(ispace, dintervals, c.dtype, None, properties)
 
     def callback(self, clusters, prefix):
         if not prefix:
             return clusters
+        d = prefix[-1].dim
 
         # Rule out extractions that would break data dependencies
         exclude = set().union(*[c.scope.writes for c in clusters])
 
         # Rule out extractions that are *not* independent of the Dimension
         # currently investigated
-        exclude.add(prefix[-1].dim)
+        exclude.add(d)
 
+        key = lambda c: self._alias_key(c, d)
         processed = list(clusters)
-        for ak, group in groupby(clusters, key=self._alias_key):
+        for ak, group in as_mapper(clusters, key=key).items():
             g = list(group)
 
             if any(not c.is_dense for c in g):
@@ -347,7 +352,7 @@ class CireSops(CireVisitor):
     space = (ModeDerivatives,)
 
     def _alias_key(self, c):
-        return AliasKey(c.ispace, c.dspace, c.properties, c.guards, c.dtype)
+        return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
 
     def process(self, clusters):
         processed = []
@@ -861,7 +866,7 @@ def lower_schedule(schedule, aliaskey, sregistry, ftemps):
         accesses = detect_accesses(expression)
         parts = {k: IntervalGroup(build_intervals(v)).add(ispace.intervals).relaxed
                  for k, v in accesses.items() if k}
-        dspace = DataSpace(aliaskey.dspace.intervals, parts)
+        dspace = DataSpace(aliaskey.dintervals, parts)
 
         # Drop or weaken parallelism if necessary
         properties = dict(aliaskey.properties)
@@ -1114,7 +1119,7 @@ class Group(tuple):
         return ret
 
 
-AliasKey = namedtuple('AliasKey', 'ispace dspace properties guards dtype')
+AliasKey = namedtuple('AliasKey', 'ispace dintervals dtype guards properties')
 AliasedGroup = namedtuple('AliasedGroup', 'intervals aliaseds distances')
 
 ScheduledAlias = namedtuple('ScheduledAlias', 'alias writeto ispace aliaseds indicess')
