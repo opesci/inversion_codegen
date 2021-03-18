@@ -4,11 +4,11 @@ from itertools import groupby
 from devito.ir.clusters import Cluster, ClusterGroup, Queue
 from devito.ir.support import TILABLE, Scope
 from devito.passes.clusters.utils import cluster_pass
-from devito.symbolics import pow_to_mul, uxreplace
-from devito.tools import DAG, as_tuple, filter_ordered, frozendict, timed_pass
+from devito.symbolics import pow_to_mul
+from devito.tools import DAG, as_tuple, frozendict, timed_pass
 from devito.types import Symbol
 
-__all__ = ['Lift', 'fuse', 'eliminate_arrays', 'optimize_pows', 'extract_increments']
+__all__ = ['Lift', 'fuse', 'optimize_pows', 'extract_increments']
 
 
 class Lift(Queue):
@@ -250,53 +250,6 @@ def fuse(clusters, toposort=False):
     of fusion; the new ordering is computed such that all data dependencies are honored.
     """
     return Fusion(toposort=toposort).process(clusters)
-
-
-@timed_pass()
-def eliminate_arrays(clusters):
-    """
-    Eliminate redundant expressions stored in Arrays.
-    """
-    mapper = {}
-    processed = []
-    for c in clusters:
-        if not c.is_dense:
-            processed.append(c)
-            continue
-
-        # Search for any redundant RHSs
-        seen = {}
-        for e in c.exprs:
-            f = e.lhs.function
-            if not f.is_Array:
-                continue
-            v = seen.get(e.rhs)
-            if v is not None:
-                # Found a redundant RHS
-                mapper[f] = v
-            else:
-                seen[e.rhs] = f
-
-        if not mapper:
-            # Do not waste time
-            processed.append(c)
-            continue
-
-        # Replace redundancies
-        subs = {}
-        for f, v in mapper.items():
-            for i in filter_ordered(i.indexed for i in c.scope[f]):
-                subs[i] = v[i.indices]
-        exprs = []
-        for e in c.exprs:
-            if e.lhs.function in mapper:
-                # Drop the write
-                continue
-            exprs.append(uxreplace(e, subs))
-
-        processed.append(c.rebuild(exprs))
-
-    return processed
 
 
 @cluster_pass(mode='all')
