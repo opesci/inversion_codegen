@@ -5,8 +5,8 @@ import numpy as np
 from devito.core.operator import CoreOperator, CustomOperator
 from devito.exceptions import InvalidOperator
 from devito.passes.equations import buffering, collect_derivatives
-from devito.passes.clusters import (Blocking, Lift, cire, cse, eliminate_arrays,
-                                    extract_increments, factorize, fuse, optimize_pows)
+from devito.passes.clusters import (Blocking, Lift, cire, cse, extract_increments,
+                                    factorize, fuse, optimize_pows)
 from devito.passes.iet import (CTarget, OmpTarget, avoid_denormals, mpiize,
                                optimize_halospots, hoist_prodders, relax_incr_dimensions)
 from devito.tools import timed_pass
@@ -178,10 +178,9 @@ class Cpu64AdvOperator(Cpu64OperatorMixin, CoreOperator):
         clusters = factorize(clusters)
         clusters = optimize_pows(clusters)
 
-        # The previous passes may have created fusion opportunities, which in
-        # turn may enable further optimizations
+        # The previous passes may have created fusion opportunities
+        #TODO: DROP??
         clusters = fuse(clusters)
-        clusters = eliminate_arrays(clusters)
 
         # Reduce flops (no arithmetic alterations)
         clusters = cse(clusters, sregistry)
@@ -259,10 +258,10 @@ class Cpu64FsgOperator(Cpu64AdvOperator):
         clusters = factorize(clusters)
         clusters = optimize_pows(clusters)
 
-        # The previous passes may have created fusion opportunities, which in
-        # turn may enable further optimizations
+        # The previous passes may have created fusion opportunities
+        #TODO: DROP??? 
+        #TODO: UPDATE DEVITOPRO!!!
         clusters = fuse(clusters)
-        clusters = eliminate_arrays(clusters)
 
         # Reduce flops (no arithmetic alterations)
         clusters = cse(clusters, sregistry)

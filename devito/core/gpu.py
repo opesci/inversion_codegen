@@ -6,8 +6,7 @@ from devito.core.operator import CoreOperator, CustomOperator
 from devito.exceptions import InvalidOperator
 from devito.passes.equations import collect_derivatives, buffering
 from devito.passes.clusters import (Blocking, Lift, Streaming, Tasker, cire, cse,
-                                    eliminate_arrays, extract_increments, factorize,
-                                    fuse, optimize_pows)
+                                    extract_increments, factorize, fuse, optimize_pows)
 from devito.passes.iet import (DeviceOmpTarget, DeviceAccTarget, optimize_halospots,
                                mpiize, hoist_prodders, is_on_device)
 from devito.tools import as_tuple, timed_pass
@@ -154,10 +153,9 @@ class DeviceAdvOperator(DeviceOperatorMixin, CoreOperator):
         # Reduce flops (no arithmetic alterations)
         clusters = cse(clusters, sregistry)
 
-        # Lifting may create fusion opportunities, which in turn may enable
-        # further optimizations
+        # Lifting may create fusion opportunities
+        #TODO: DROP???
         clusters = fuse(clusters)
-        clusters = eliminate_arrays(clusters)
 
         return clusters
 
