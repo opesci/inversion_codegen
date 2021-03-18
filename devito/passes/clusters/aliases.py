@@ -238,11 +238,10 @@ class CireVisitor(Queue):
         return self._process_fatd(clusters, 1)
 
     def _alias_from_clusters(self, clusters, exclude, aliaskey):
-        groups = [c.exprs for c in clusters]
-        exprs = flatten(groups)
-
         variants = []
         for m in self.makers:
+            exprs = flatten([c.exprs for c in clusters])
+
             # Capture aliases within `exprs`
             aliases = AliasMapper()
             score = 0
@@ -279,24 +278,40 @@ class CireVisitor(Queue):
         if self._opt_rotate:
             schedule = optimize_schedule_rotations(schedule, self.sregistry)
         schedule = optimize_schedule_padding(schedule, aliaskey, self.platform)
-        clusters, subs = lower_schedule(schedule, aliaskey, self.sregistry,
-                                        self._opt_ftemps)
+        processed, subs = lower_schedule(schedule, aliaskey, self.sregistry,
+                                         self._opt_ftemps)
 
-        #TODO: replace with something like:
-        #processed = [rebuild(c, expr
-        #TODO: BUT... WTF is exprs now...
-        #clusters.append(rebuild(cluster, exprs, subs, schedule))
+        # Reconstruct the input Clusters
+        for c in clusters:
+            n = len(c.exprs)
+            cexprs, exprs = exprs[:n], exprs[n:]
 
-        return clusters
+            cexprs = [uxreplace(e, subs) for e in cexprs]
+
+            ispace = c.ispace.augment(schedule.dmapper)
+            ispace = ispace.augment(schedule.rmapper)
+
+            accesses = detect_accesses(cexprs)
+            parts = {k: IntervalGroup(build_intervals(v)).relaxed
+                     for k, v in accesses.items() if k}
+            dspace = DataSpace(c.dspace.intervals, parts)
+
+            processed.append(c.rebuild(exprs=cexprs, ispace=ispace, dspace=dspace))
+
+        assert len(exprs) == 0
+
+        return processed
 
     def _alias_key(self, c):
-        return AliasKey(c.ispace.reset(), c.dspace.reset(), c.properties, c.guards,
-                        c.dtype)
+        raise NotImplementedError
 
 
 class CireInvariants(CireVisitor):
 
     space = (ModeInvariantsBasic, ModeInvariantsCompound)
+
+    def _alias_key(self, c):
+        return AliasKey(c.ispace.reset(), c.dspace.reset(), c.properties, None, c.dtype)
 
     def callback(self, clusters, prefix):
         if not prefix:
@@ -330,6 +345,9 @@ class CireInvariants(CireVisitor):
 class CireSops(CireVisitor):
 
     space = (ModeDerivatives,)
+
+    def _alias_key(self, c):
+        return AliasKey(c.ispace, c.dspace, c.properties, c.guards, c.dtype)
 
     def process(self, clusters):
         processed = []
@@ -664,10 +682,9 @@ def lower_aliases(aliases, aliaskey, maker):
         writeto = IterationSpace(IntervalGroup(writeto), sub_iterators)
 
         # The alias iteration space
-        intervals = IntervalGroup(intervals, aliaskey.ispace.relations)
-        sub_iterators = aliaskey.ispace.sub_iterators
-        directions = aliaskey.ispace.directions
-        ispace = IterationSpace(intervals, sub_iterators, directions)
+        ispace = IterationSpace(IntervalGroup(intervals, aliaskey.ispace.relations),
+                                aliaskey.ispace.sub_iterators,
+                                aliaskey.ispace.directions)
         ispace = ispace.augment(sub_iterators)
 
         processed.append(ScheduledAlias(alias, writeto, ispace, v.aliaseds, indicess))
@@ -855,10 +872,11 @@ def lower_schedule(schedule, aliaskey, sregistry, ftemps):
                 properties[d] = normalize_properties(v, {PARALLEL_IF_PVT})
 
         # Finally, build the `alias` Cluster
-        from IPython import embed; embed()
         #TODO: make sure syncs is unnecessary here....
-        clusters.append(cluster.rebuild(exprs=expression, ispace=ispace,
-                                        dspace=dspace, properties=properties))
+        #TODO: run 
+        # DEVITO_LANGUAGE=openmp DEVITO_PLATFORM=nvidiaX py.test test_gpu_common.py::TestStreaming::test_tasking_over_compiler_generated -r f -x -vv -s
+        # TODO: change it such that Tasking ALSO occurs BEFORE cire-sops... (parametrize?)
+        clusters.append(Cluster(expression, ispace, dspace, aliaskey.guards, properties))
 
     return clusters, subs
 
@@ -889,24 +907,6 @@ def pick_best(variants):
     schedule, exprs, _ = best
 
     return schedule, exprs
-
-
-def rebuild(aliaskey, exprs, subs, schedule):
-    """
-    Plug the optimized aliases into the input Cluster. This leads to creating
-    a new Cluster with suitable IterationSpace and DataSpace.
-    """
-    exprs = [uxreplace(e, subs) for e in exprs]
-
-    ispace = aliaskey.ispace.augment(schedule.dmapper)
-    ispace = ispace.augment(schedule.rmapper)
-
-    accesses = detect_accesses(exprs)
-    parts = {k: IntervalGroup(build_intervals(v)).relaxed
-             for k, v in accesses.items() if k}
-    dspace = DataSpace(aliaskey.dspace.intervals, parts)
-
-    return cluster.rebuild(exprs=exprs, ispace=ispace, dspace=dspace)
 
 
 # Utilities
