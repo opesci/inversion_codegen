@@ -6,9 +6,9 @@ from cached_property import cached_property
 import numpy as np
 
 from devito.ir import (SEQUENTIAL, PARALLEL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
-                       Forward, IterationInstance, IterationSpace, Interval, Queue,
-                       IntervalGroup, LabeledVector, detect_accesses, build_intervals,
-                       normalize_properties)
+                       Forward, IterationInstance, IterationSpace, Interval, Cluster,
+                       Queue, IntervalGroup, LabeledVector, detect_accesses,
+                       build_intervals, normalize_properties)
 from devito.passes.clusters.utils import timed_pass
 from devito.symbolics import (Uxmapper, compare_ops, estimate_cost, q_constant,
                               q_leaf, retrieve_indexed, search, uxreplace)
@@ -26,8 +26,8 @@ def cire(clusters, mode, sregistry, options, platform):
 
     Parameters
     ----------
-    cluster : Cluster
-        Input Cluster, subject of the optimization pass.
+    cluster : list of Cluster
+        Input Clusters, subject of the optimization pass.
     mode : str
         The transformation mode. Accepted: ['invariants', 'sops'].
         * 'invariants' is for sub-expressions that are invariant w.r.t. one or
@@ -237,10 +237,10 @@ class CireVisitor(Queue):
     def process(self, clusters):
         return self._process_fatd(clusters, 1)
 
-    def _alias_key(self, cluster):
-        return (cluster.ispace.reset(), cluster.properties, cluster.dtype)
+    def _alias_from_clusters(self, clusters, exclude, aliaskey):
+        groups = [c.exprs for c in clusters]
+        exprs = flatten(groups)
 
-    def _alias_from_exprs(self, exprs, exclude, ispace, properties, dtype):
         variants = []
         for m in self.makers:
             # Capture aliases within `exprs`
@@ -251,7 +251,7 @@ class CireVisitor(Queue):
                 mapper = m._extract(exprs, exclude, n)
 
                 # Search aliasing expressions
-                found = collect(mapper.extracted, ispace, self._opt_minstorage)
+                found = collect(mapper.extracted, aliaskey.ispace, self._opt_minstorage)
 
                 # Choose the aliasing expressions with a good flops/memory trade-off
                 exprs, chosen, pscore = choose(found, exprs, mapper, m._selector)
@@ -259,7 +259,7 @@ class CireVisitor(Queue):
                 score += pscore  #TODO: ATTACH TO ALIASES
 
             # AliasMapper -> Schedule
-            schedule = lower_aliases(aliases, ispace, properties, m)
+            schedule = lower_aliases(aliases, aliaskey, m)
             if not schedule:
                 continue
 
@@ -273,14 +273,14 @@ class CireVisitor(Queue):
         try:
             schedule, exprs = pick_best(variants)
         except IndexError:
-            return [], []
+            return []
 
         # Schedule -> [Clusters]
         if self._opt_rotate:
             schedule = optimize_schedule_rotations(schedule, self.sregistry)
-        schedule = optimize_schedule_padding(schedule, properties, dtype, self.platform)
-        clusters, subs = lower_schedule(schedule, properties, dtype,
-                                        self.sregistry, self._opt_ftemps)
+        schedule = optimize_schedule_padding(schedule, aliaskey, self.platform)
+        clusters, subs = lower_schedule(schedule, aliaskey, self.sregistry,
+                                        self._opt_ftemps)
 
         #TODO: replace with something like:
         #processed = [rebuild(c, expr
@@ -288,6 +288,10 @@ class CireVisitor(Queue):
         #clusters.append(rebuild(cluster, exprs, subs, schedule))
 
         return clusters
+
+    def _alias_key(self, c):
+        return AliasKey(c.ispace.reset(), c.dspace.reset(), c.properties, c.guards,
+                        c.dtype)
 
 
 class CireInvariants(CireVisitor):
@@ -306,18 +310,19 @@ class CireInvariants(CireVisitor):
         exclude.add(prefix[-1].dim)
 
         processed = list(clusters)
-        for k, group in groupby(clusters, key=self._alias_key):
+        for ak, group in groupby(clusters, key=self._alias_key):
             g = list(group)
 
             if any(not c.is_dense for c in g):
                 continue
 
-            exprs = flatten(c.exprs for c in g)
-            made = self._alias_from_exprs(exprs, exclude, *k)
+            made = self._alias_from_clusters(g, exclude, ak)
 
-            for n, c in enumerate(g, -len(g)):
-                processed[processed.index(c)] = made.pop(n)
-            processed = made + processed
+            # Insert the transformed clusters at the right place
+            if made:
+                for n, c in enumerate(g, -len(g)):
+                    processed[processed.index(c)] = made.pop(n)
+                processed = made + processed
 
         return processed
 
@@ -329,9 +334,6 @@ class CireSops(CireVisitor):
     def process(self, clusters):
         processed = []
         for c in clusters:
-            # We don't care about sparse Clusters. Their computational cost is
-            # negligible and processing all of them would only increase compilation
-            # time and potentially make the generated code more chaotic
             if not c.is_dense:
                 processed.append(c)
                 continue
@@ -341,9 +343,12 @@ class CireSops(CireVisitor):
             # u[x, y] = ... r0*a[x, y] ...
             exclude = {i.source.indexed for i in c.scope.d_flow.independent()}
 
-            made = self._alias_from_exprs(c.exprs, exclude, *self._alias_key(c))
+            made = self._alias_from_clusters([c], exclude, self._alias_key(c))
 
-            processed.extend(flatten(made))
+            if made:
+                processed.extend(flatten(made))
+            else:
+                processed.append(c)
 
         return processed
 
@@ -581,7 +586,7 @@ def choose(aliases, exprs, mapper, selector):
     return exprs, retained, tot
 
 
-def lower_aliases(aliases, ispace, properties, maker):
+def lower_aliases(aliases, aliaskey, maker):
     """
     Create a Schedule from an AliasMapper.
     """
@@ -595,7 +600,7 @@ def lower_aliases(aliases, ispace, properties, maker):
         writeto = []
         sub_iterators = {}
         indicess = [[] for _ in v.distances]
-        for i in ispace.intervals:
+        for i in aliaskey.ispace.intervals:
             try:
                 interval = imapper[i.dim]
             except KeyError:
@@ -607,7 +612,7 @@ def lower_aliases(aliases, ispace, properties, maker):
 
             if not (writeto or
                     interval != interval.zero() or
-                    maker._in_writeto(i.dim, properties)):
+                    maker._in_writeto(i.dim, aliaskey.properties)):
                 # The alias doesn't require a temporary Dimension along i.dim
                 intervals.append(i)
                 continue
@@ -659,8 +664,10 @@ def lower_aliases(aliases, ispace, properties, maker):
         writeto = IterationSpace(IntervalGroup(writeto), sub_iterators)
 
         # The alias iteration space
-        intervals = IntervalGroup(intervals, ispace.relations)
-        ispace = IterationSpace(intervals, ispace.sub_iterators, ispace.directions)
+        intervals = IntervalGroup(intervals, aliaskey.ispace.relations)
+        sub_iterators = aliaskey.ispace.sub_iterators
+        directions = aliaskey.ispace.directions
+        ispace = IterationSpace(intervals, sub_iterators, directions)
         ispace = ispace.augment(sub_iterators)
 
         processed.append(ScheduledAlias(alias, writeto, ispace, v.aliaseds, indicess))
@@ -669,7 +676,7 @@ def lower_aliases(aliases, ispace, properties, maker):
     # `ispace`'s IterationIntervals as possible in order to honor the
     # write-to region. Another fundamental reason for ordering is to ensure
     # deterministic code generation
-    processed = sorted(processed, key=lambda i: cit(ispace, i.ispace))
+    processed = sorted(processed, key=lambda i: cit(aliaskey.ispace, i.ispace))
 
     return Schedule(*processed, dmapper=dmapper)
 
@@ -748,7 +755,7 @@ def optimize_schedule_rotations(schedule, sregistry):
     return Schedule(*processed, dmapper=schedule.dmapper, rmapper=rmapper)
 
 
-def optimize_schedule_padding(schedule, properties, dtype, platform):
+def optimize_schedule_padding(schedule, aliaskey, platform):
     """
     Round up the innermost IterationInterval of the tensor temporaries IterationSpace
     to a multiple of the SIMD vector length. This is not always possible though (it
@@ -758,8 +765,8 @@ def optimize_schedule_padding(schedule, properties, dtype, platform):
     for i in schedule:
         try:
             it = i.ispace.itintervals[-1]
-            if ROUNDABLE in properties[it.dim]:
-                vl = platform.simd_items_per_reg(dtype)
+            if ROUNDABLE in aliaskey.properties[it.dim]:
+                vl = platform.simd_items_per_reg(aliaskey.dtype)
                 ispace = i.ispace.add(Interval(it.dim, 0, it.interval.size % vl))
             else:
                 ispace = i.ispace
@@ -771,7 +778,7 @@ def optimize_schedule_padding(schedule, properties, dtype, platform):
     return Schedule(*processed, dmapper=schedule.dmapper, rmapper=schedule.rmapper)
 
 
-def lower_schedule(schedule, properties, dtype, sregistry, ftemps):
+def lower_schedule(schedule, aliaskey, sregistry, ftemps):
     """
     Turn a Schedule into a sequence of Clusters.
     """
@@ -785,6 +792,7 @@ def lower_schedule(schedule, properties, dtype, sregistry, ftemps):
     subs = {}
     for alias, writeto, ispace, aliaseds, indicess in schedule:
         name = sregistry.make_name()
+        dtype = aliaskey.dtype
 
         if writeto:
             # The Dimensions defining the shape of Array
@@ -836,17 +844,19 @@ def lower_schedule(schedule, properties, dtype, sregistry, ftemps):
         accesses = detect_accesses(expression)
         parts = {k: IntervalGroup(build_intervals(v)).add(ispace.intervals).relaxed
                  for k, v in accesses.items() if k}
-        dspace = DataSpace(cluster.dspace.intervals, parts)
+        dspace = DataSpace(aliaskey.dspace.intervals, parts)
 
         # Drop or weaken parallelism if necessary
-        properties = dict(cluster.properties)
-        for d, v in cluster.properties.items():
+        properties = dict(aliaskey.properties)
+        for d, v in aliaskey.properties.items():
             if any(i.is_Modulo for i in ispace.sub_iterators[d]):
                 properties[d] = normalize_properties(v, {SEQUENTIAL})
             elif d not in writeto.dimensions:
                 properties[d] = normalize_properties(v, {PARALLEL_IF_PVT})
 
         # Finally, build the `alias` Cluster
+        from IPython import embed; embed()
+        #TODO: make sure syncs is unnecessary here....
         clusters.append(cluster.rebuild(exprs=expression, ispace=ispace,
                                         dspace=dspace, properties=properties))
 
@@ -881,20 +891,20 @@ def pick_best(variants):
     return schedule, exprs
 
 
-def rebuild(cluster, exprs, subs, schedule):
+def rebuild(aliaskey, exprs, subs, schedule):
     """
     Plug the optimized aliases into the input Cluster. This leads to creating
     a new Cluster with suitable IterationSpace and DataSpace.
     """
     exprs = [uxreplace(e, subs) for e in exprs]
 
-    ispace = cluster.ispace.augment(schedule.dmapper)
+    ispace = aliaskey.ispace.augment(schedule.dmapper)
     ispace = ispace.augment(schedule.rmapper)
 
     accesses = detect_accesses(exprs)
     parts = {k: IntervalGroup(build_intervals(v)).relaxed
              for k, v in accesses.items() if k}
-    dspace = DataSpace(cluster.dspace.intervals, parts)
+    dspace = DataSpace(aliaskey.dspace.intervals, parts)
 
     return cluster.rebuild(exprs=exprs, ispace=ispace, dspace=dspace)
 
@@ -1104,6 +1114,7 @@ class Group(tuple):
         return ret
 
 
+AliasKey = namedtuple('AliasKey', 'ispace dspace properties guards dtype')
 AliasedGroup = namedtuple('AliasedGroup', 'intervals aliaseds distances')
 
 ScheduledAlias = namedtuple('ScheduledAlias', 'alias writeto ispace aliaseds indicess')
