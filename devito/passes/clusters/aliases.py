@@ -85,6 +85,8 @@ def cire(clusters, mode, sregistry, options, platform):
 
 
 class CireVisitor(Queue):
+    #TODO: CireVisitor -> CireTransformer
+    #Only CireInvariants inherits from Queue (and CireVisitor)
 
     optname = None
 
@@ -92,12 +94,12 @@ class CireVisitor(Queue):
         self.sregistry = sregistry
         self.platform = platform
 
-        self._opt_minstorage = options['min-storage']
-        self._opt_rotate = options['cire-rotate']
-        self._opt_ftemps = options['cire-ftemps']
-        self._opt_mincost = options['cire-mincost'][self.optname]
-        self._opt_maxpar = options['cire-maxpar']
-        self._opt_maxalias = options['cire-maxalias']
+        self.opt_minstorage = options['min-storage']
+        self.opt_rotate = options['cire-rotate']
+        self.opt_ftemps = options['cire-ftemps']
+        self.opt_mincost = options['cire-mincost'][self.optname]
+        self.opt_maxpar = options['cire-maxpar']
+        self.opt_maxalias = options['cire-maxalias']
 
     def process(self, clusters):
         return self._process_fatd(clusters, 1)
@@ -106,25 +108,25 @@ class CireVisitor(Queue):
     def _generators(self):
         """
         A CireVisitor uses one or more Generators to extracts sub-expressions
-        that are potential CIRE candidates. Different Generators may lead to
-        different extractions, and therefore be characterized by different
-        memory/flops trade-offs.
+        that are potential CIRE candidates. Different Generators may capture
+        different sets of sub-expressions, and therefore be characterized by
+        different memory/flops trade-offs.
         """
         return ()
 
-    def _alias_from_clusters(self, clusters, exclude, aliaskey):
+    def _alias_from_clusters(self, clusters, exclude, meta):
         # [Clusters]_n -> [AliasMapper]_m
         variants = []
         for g in self._generators:
             exprs = flatten([c.exprs for c in clusters])
 
-            extractors = g.generate(exprs, exclude, maxalias=self._opt_maxalias)
+            extractors = g.generate(exprs, exclude, maxalias=self.opt_maxalias)
 
             aliases = AliasMapper()
             for extract in extractors:
                 mapper = extract(exprs)
 
-                found = collect(mapper.extracted, aliaskey.ispace, self._opt_minstorage)
+                found = collect(mapper.extracted, meta.ispace, self.opt_minstorage)
 
                 exprs, chosen = choose(found, exprs, mapper, self._cbk_select)
                 aliases.update(chosen)
@@ -139,16 +141,15 @@ class CireVisitor(Queue):
             return []
 
         # AliasMapper -> Schedule
-        schedule = lower_aliases(aliases, aliaskey, self._cbk_in_writeto, self._opt_maxpar)
+        schedule = lower_aliases(aliases, meta, self._cbk_in_writeto, self.opt_maxpar)
 
         # Schedule -> Schedule (optimization)
-        if self._opt_rotate:
+        if self.opt_rotate:
             schedule = optimize_schedule_rotations(schedule, self.sregistry)
-        schedule = optimize_schedule_padding(schedule, aliaskey, self.platform)
+        schedule = optimize_schedule_padding(schedule, meta, self.platform)
 
         # Schedule -> [Clusters]_k
-        processed, subs = lower_schedule(schedule, aliaskey, self.sregistry,
-                                         self._opt_ftemps)
+        processed, subs = lower_schedule(schedule, meta, self.sregistry, self.opt_ftemps)
 
         # [Clusters]_k -> [Clusters]_{k+n}
         for c in clusters:
@@ -171,8 +172,7 @@ class CireVisitor(Queue):
 
         return processed
 
-    def _alias_key(self, c):
-        #TODO: _alias_meta ??
+    def _mode_key(self, c):
         raise NotImplementedError
 
     def _cbk_in_writeto(self, dim, properties):
@@ -198,7 +198,7 @@ class CireInvariants(CireVisitor):
         # currently investigated
         exclude.add(d)
 
-        key = lambda c: self._alias_key(c, d)
+        key = lambda c: self._mode_key(c, d)
         processed = list(clusters)
         for ak, group in as_mapper(clusters, key=key).items():
             g = list(group)
@@ -220,11 +220,11 @@ class CireInvariants(CireVisitor):
     def _generators(self):
         return (GeneratorExpensive, GeneratorExpensiveCompounds)
 
-    def _alias_key(self, c, d):
+    def _mode_key(self, c, d):
         ispace = c.ispace.reset()
         dintervals = c.dspace.intervals.drop(d).reset()
         properties = frozendict({d: relax_properties(v) for d, v in c.properties.items()})
-        return AliasKey(ispace, dintervals, c.dtype, None, properties)
+        return ModeKey(ispace, dintervals, c.dtype, None, properties)
 
     def _cbk_in_writeto(self, dim, properties):
         return PARALLEL in properties[dim]
@@ -232,9 +232,9 @@ class CireInvariants(CireVisitor):
     def _cbk_select(self, e, naliases):
         if all(i.function.is_Symbol for i in e.free_symbols):
             # E.g., `dt**(-2)`
-            mincost = self._opt_mincost['scalar']
+            mincost = self.opt_mincost['scalar']
         else:
-            mincost = self._opt_mincost['tensor']
+            mincost = self.opt_mincost['tensor']
         return estimate_cost(e, True)*naliases // mincost
 
 
@@ -254,7 +254,7 @@ class CireSops(CireVisitor):
             # u[x, y] = ... r0*a[x, y] ...
             exclude = {i.source.indexed for i in c.scope.d_flow.independent()}
 
-            made = self._alias_from_clusters([c], exclude, self._alias_key(c))
+            made = self._alias_from_clusters([c], exclude, self._mode_key(c))
 
             if made:
                 processed.extend(flatten(made))
@@ -267,17 +267,17 @@ class CireSops(CireVisitor):
     def _generators(self):
         return (GeneratorDerivatives,)
 
-    def _alias_key(self, c):
-        return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
+    def _mode_key(self, c):
+        return ModeKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
 
     def _cbk_in_writeto(self, dim, properties):
-        return self._opt_maxpar and PARALLEL in properties[dim]
+        return self.opt_maxpar and PARALLEL in properties[dim]
 
     def _cbk_select(self, e, naliases):
         if naliases <= 1:
             return 0
         else:
-            return estimate_cost(e, True)*naliases // self._opt_mincost
+            return estimate_cost(e, True)*naliases // self.opt_mincost
 
 
 modes = {
@@ -644,7 +644,7 @@ def choose(aliases, exprs, mapper, select):
     return exprs, retained
 
 
-def lower_aliases(aliases, aliaskey, in_writeto, maxpar):
+def lower_aliases(aliases, meta, in_writeto, maxpar):
     """
     Create a Schedule from an AliasMapper.
     """
@@ -658,7 +658,7 @@ def lower_aliases(aliases, aliaskey, in_writeto, maxpar):
         writeto = []
         sub_iterators = {}
         indicess = [[] for _ in v.distances]
-        for i in aliaskey.ispace.intervals:
+        for i in meta.ispace.intervals:
             try:
                 interval = imapper[i.dim]
             except KeyError:
@@ -670,7 +670,7 @@ def lower_aliases(aliases, aliaskey, in_writeto, maxpar):
 
             if not (writeto or
                     interval != interval.zero() or
-                    in_writeto(i.dim, aliaskey.properties)):
+                    in_writeto(i.dim, meta.properties)):
                 # The alias doesn't require a temporary Dimension along i.dim
                 intervals.append(i)
                 continue
@@ -722,9 +722,9 @@ def lower_aliases(aliases, aliaskey, in_writeto, maxpar):
         writeto = IterationSpace(IntervalGroup(writeto), sub_iterators)
 
         # The alias iteration space
-        ispace = IterationSpace(IntervalGroup(intervals, aliaskey.ispace.relations),
-                                aliaskey.ispace.sub_iterators,
-                                aliaskey.ispace.directions)
+        ispace = IterationSpace(IntervalGroup(intervals, meta.ispace.relations),
+                                meta.ispace.sub_iterators,
+                                meta.ispace.directions)
         ispace = ispace.augment(sub_iterators)
 
         processed.append(ScheduledAlias(alias, writeto, ispace, v.aliaseds, indicess))
@@ -733,7 +733,7 @@ def lower_aliases(aliases, aliaskey, in_writeto, maxpar):
     # `ispace`'s IterationIntervals as possible in order to honor the
     # write-to region. Another fundamental reason for ordering is to ensure
     # deterministic code generation
-    processed = sorted(processed, key=lambda i: cit(aliaskey.ispace, i.ispace))
+    processed = sorted(processed, key=lambda i: cit(meta.ispace, i.ispace))
 
     return Schedule(*processed, dmapper=dmapper)
 
@@ -812,7 +812,7 @@ def optimize_schedule_rotations(schedule, sregistry):
     return Schedule(*processed, dmapper=schedule.dmapper, rmapper=rmapper)
 
 
-def optimize_schedule_padding(schedule, aliaskey, platform):
+def optimize_schedule_padding(schedule, meta, platform):
     """
     Round up the innermost IterationInterval of the tensor temporaries IterationSpace
     to a multiple of the SIMD vector length. This is not always possible though (it
@@ -822,8 +822,8 @@ def optimize_schedule_padding(schedule, aliaskey, platform):
     for i in schedule:
         try:
             it = i.ispace.itintervals[-1]
-            if ROUNDABLE in aliaskey.properties[it.dim]:
-                vl = platform.simd_items_per_reg(aliaskey.dtype)
+            if ROUNDABLE in meta.properties[it.dim]:
+                vl = platform.simd_items_per_reg(meta.dtype)
                 ispace = i.ispace.add(Interval(it.dim, 0, it.interval.size % vl))
             else:
                 ispace = i.ispace
@@ -835,7 +835,7 @@ def optimize_schedule_padding(schedule, aliaskey, platform):
     return Schedule(*processed, dmapper=schedule.dmapper, rmapper=schedule.rmapper)
 
 
-def lower_schedule(schedule, aliaskey, sregistry, ftemps):
+def lower_schedule(schedule, meta, sregistry, ftemps):
     """
     Turn a Schedule into a sequence of Clusters.
     """
@@ -849,7 +849,7 @@ def lower_schedule(schedule, aliaskey, sregistry, ftemps):
     subs = {}
     for alias, writeto, ispace, aliaseds, indicess in schedule:
         name = sregistry.make_name()
-        dtype = aliaskey.dtype
+        dtype = meta.dtype
 
         if writeto:
             # The Dimensions defining the shape of Array
@@ -901,11 +901,11 @@ def lower_schedule(schedule, aliaskey, sregistry, ftemps):
         accesses = detect_accesses(expression)
         parts = {k: IntervalGroup(build_intervals(v)).add(ispace.intervals).relaxed
                  for k, v in accesses.items() if k}
-        dspace = DataSpace(aliaskey.dintervals, parts)
+        dspace = DataSpace(meta.dintervals, parts)
 
         # Drop or weaken parallelism if necessary
-        properties = dict(aliaskey.properties)
-        for d, v in aliaskey.properties.items():
+        properties = dict(meta.properties)
+        for d, v in meta.properties.items():
             if any(i.is_Modulo for i in ispace.sub_iterators[d]):
                 properties[d] = normalize_properties(v, {SEQUENTIAL})
             elif d not in writeto.dimensions:
@@ -916,7 +916,7 @@ def lower_schedule(schedule, aliaskey, sregistry, ftemps):
         #TODO: run 
         # DEVITO_LANGUAGE=openmp DEVITO_PLATFORM=nvidiaX py.test test_gpu_common.py::TestStreaming::test_tasking_over_compiler_generated -r f -x -vv -s
         # TODO: change it such that Tasking ALSO occurs BEFORE cire-sops... (parametrize?)
-        clusters.append(Cluster(expression, ispace, dspace, aliaskey.guards, properties))
+        clusters.append(Cluster(expression, ispace, dspace, meta.guards, properties))
 
     return clusters, subs
 
@@ -1152,7 +1152,7 @@ class Group(tuple):
         return ret
 
 
-AliasKey = namedtuple('AliasKey', 'ispace dintervals dtype guards properties')
+ModeKey = namedtuple('ModeKey', 'ispace dintervals dtype guards properties')
 AliasedGroup = namedtuple('AliasedGroup', 'intervals aliaseds distances score')
 
 ScheduledAlias = namedtuple('ScheduledAlias', 'alias writeto ispace aliaseds indicess')
