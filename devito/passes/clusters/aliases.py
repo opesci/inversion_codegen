@@ -84,145 +84,9 @@ def cire(clusters, mode, sregistry, options, platform):
     return modes[mode](sregistry, options, platform).process(clusters)
 
 
-class Mode(object):
-
-    optname = None
-
-    def __init__(self, options):
-        self._opt_mincost = options['cire-mincost'][self.optname]
-        self._opt_maxpar = options['cire-maxpar']
-        self._opt_maxalias = options['cire-maxalias']
-
-        counter = generator()
-        self._make_symbol = lambda: Scalar(name='dummy%d' % counter())
-
-    def _nrepeats(self, exprs):
-        raise NotImplementedError
-
-    def _extract(self, exprs, exclude, n):
-        raise NotImplementedError
-
-    #TODO: MOVE TO QUEUE CLASSES???? THESE ARE SCHEDULE RELATED THINGS, WHILE THE MODE SHOULD
-    # BE FOR THE EXTRACTION...
-    def _in_writeto(self, dim, properties):
-        raise NotImplementedError
-
-    #TODO: MOVE TO QUEUE CLASSES???? THESE ARE SCHEDULE RELATED THINGS, WHILE THE MODE SHOULD
-    # BE FOR THE EXTRACTION...
-    def _selector(self, e, naliases):
-        raise NotImplementedError
-
-
-class ModeInvariants(Mode):
-
-    optname = 'invariants'
-
-    def _nrepeats(self, exprs):
-        return 1
-
-    def _rule(self, e):
-        return (e.is_Function or
-                (e.is_Pow and e.exp.is_Number and e.exp < 1))
-
-    def _extract(self, exprs, exclude, n):
-        mapper = Uxmapper()
-        for e in exprs:
-            for i in search(e, self._rule, 'all', 'bfs_first_hit'):
-                if {a.function for a in i.free_symbols} & exclude:
-                    continue
-                mapper.add(i, self._make_symbol)
-
-        return mapper
-
-    def _in_writeto(self, dim, properties):
-        return PARALLEL in properties[dim]
-
-    def _selector(self, e, naliases):
-        if all(i.function.is_Symbol for i in e.free_symbols):
-            # E.g., `dt**(-2)`
-            mincost = self._opt_mincost['scalar']
-        else:
-            mincost = self._opt_mincost['tensor']
-        return estimate_cost(e, True)*naliases // mincost
-
-
-class ModeInvariantsBasic(ModeInvariants):
-    pass
-
-
-class ModeInvariantsCompound(ModeInvariants):
-
-    def _extract(self, exprs, exclude, n):
-        extracted = super()._extract(exprs, exclude, n).extracted
-
-        rule = lambda e: any(a in extracted for a in e.args)
-
-        mapper = Uxmapper()
-        for e in exprs:
-            for i in search(e, rule, 'all', 'dfs'):
-                if not i.is_commutative:
-                    continue
-
-                key = lambda a: a in extracted
-                terms, others = split(i.args, key)
-
-                mapper.add(i, self._make_symbol, terms)
-
-        return mapper
-
-
-class ModeDerivatives(Mode):
-
-    optname = 'sops'
-
-    def _nrepeats(self, exprs):
-        return potential_max_deriv_order(exprs)
-
-    def _extract(self, exprs, exclude, n):
-        mapper = Uxmapper()
-        for e in exprs:
-            for i in search_potential_deriv(e, n):
-                if i.free_symbols & exclude:
-                    continue
-
-                key = lambda a: a.is_Add
-                terms, others = split(i.args, key)
-
-                if self._opt_maxalias:
-                    # Treat `e` as an FD expression and pull out the derivative
-                    # coefficient from `i`
-                    # Note: typically derivative coefficients are numbers, but
-                    # sometimes they could be provided in symbolic form through an
-                    # arbitrary Function.  In the latter case, we rely on the
-                    # heuristic that such Function's basically never span the whole
-                    # grid, but rather a single Grid dimension (e.g., `c[z, n]` for a
-                    # stencil of diameter `n` along `z`)
-                    if e.grid is not None and terms:
-                        key = partial(maybe_coeff_key, e.grid)
-                        others, more_terms = split(others, key)
-                        terms += more_terms
-
-                mapper.add(i, self._make_symbol, terms)
-
-        return mapper
-
-    def _in_writeto(self, dim, properties):
-        return self._opt_maxpar and PARALLEL in properties[dim]
-
-    def _selector(self, e, naliases):
-        if naliases <= 1:
-            return 0
-        else:
-            return estimate_cost(e, True)*naliases // self._opt_mincost
-
-
 class CireVisitor(Queue):
 
-    space = ()
-    """
-    A CireVisitor produces, for a given sub-sequence of Clusters, one variant
-    for each space point. Different variants have different memory/flops trade-offs.
-    """
+    optname = None
 
     def __init__(self, sregistry, options, platform):
         self.sregistry = sregistry
@@ -231,34 +95,43 @@ class CireVisitor(Queue):
         self._opt_minstorage = options['min-storage']
         self._opt_rotate = options['cire-rotate']
         self._opt_ftemps = options['cire-ftemps']
-
-        self.makers = [maker(options) for maker in self.space]
+        self._opt_mincost = options['cire-mincost'][self.optname]
+        self._opt_maxpar = options['cire-maxpar']
+        self._opt_maxalias = options['cire-maxalias']
 
     def process(self, clusters):
         return self._process_fatd(clusters, 1)
 
+    @property
+    def _generators(self):
+        """
+        A CireVisitor uses one or more Generators to extracts sub-expressions
+        that are potential CIRE candidates. Different Generators may lead to
+        different extractions, and therefore be characterized by different
+        memory/flops trade-offs.
+        """
+        return ()
+
     def _alias_from_clusters(self, clusters, exclude, aliaskey):
         variants = []
-        for m in self.makers:
+        for g in self._generators:
             exprs = flatten([c.exprs for c in clusters])
 
             # Capture aliases within `exprs`
             aliases = AliasMapper()
             score = 0
-            for n in range(m._nrepeats(exprs)):
-                # Extract potentially aliasing expressions
-                mapper = m._extract(exprs, exclude, n)
-
+            for uxm in g.generate(exprs, exclude, maxalias=self._opt_maxalias):
                 # Search aliasing expressions
-                found = collect(mapper.extracted, aliaskey.ispace, self._opt_minstorage)
+                found = collect(uxm.extracted, aliaskey.ispace, self._opt_minstorage)
 
                 # Choose the aliasing expressions with a good flops/memory trade-off
-                exprs, chosen, pscore = choose(found, exprs, mapper, m._selector)
+                exprs, chosen, pscore = choose(found, exprs, uxm, self._cbk_select)
                 aliases.update(chosen)
                 score += pscore  #TODO: ATTACH TO ALIASES
+                from IPython import embed; embed()
 
             # AliasMapper -> Schedule
-            schedule = lower_aliases(aliases, aliaskey, m)
+            schedule = lower_aliases(aliases, aliaskey, self._cbk_in_writeto, self._opt_maxpar)
             if not schedule:
                 continue
 
@@ -303,18 +176,19 @@ class CireVisitor(Queue):
         return processed
 
     def _alias_key(self, c):
+        #TODO: _alias_meta ??
+        raise NotImplementedError
+
+    def _cbk_in_writeto(self, dim, properties):
+        raise NotImplementedError
+
+    def _cbk_select(self, e, naliases):
         raise NotImplementedError
 
 
 class CireInvariants(CireVisitor):
 
-    space = (ModeInvariantsBasic, ModeInvariantsCompound)
-
-    def _alias_key(self, c, d):
-        ispace = c.ispace.reset()
-        dintervals = c.dspace.intervals.drop(d).reset()
-        properties = frozendict({d: relax_properties(v) for d, v in c.properties.items()})
-        return AliasKey(ispace, dintervals, c.dtype, None, properties)
+    optname = 'invariants'
 
     def callback(self, clusters, prefix):
         if not prefix:
@@ -346,13 +220,31 @@ class CireInvariants(CireVisitor):
 
         return processed
 
+    @property
+    def _generators(self):
+        return (GeneratorExpensive, GeneratorExpensiveCompounds)
+
+    def _alias_key(self, c, d):
+        ispace = c.ispace.reset()
+        dintervals = c.dspace.intervals.drop(d).reset()
+        properties = frozendict({d: relax_properties(v) for d, v in c.properties.items()})
+        return AliasKey(ispace, dintervals, c.dtype, None, properties)
+
+    def _cbk_in_writeto(self, dim, properties):
+        return PARALLEL in properties[dim]
+
+    def _cbk_select(self, e, naliases):
+        if all(i.function.is_Symbol for i in e.free_symbols):
+            # E.g., `dt**(-2)`
+            mincost = self._opt_mincost['scalar']
+        else:
+            mincost = self._opt_mincost['tensor']
+        return estimate_cost(e, True)*naliases // mincost
+
 
 class CireSops(CireVisitor):
 
-    space = (ModeDerivatives,)
-
-    def _alias_key(self, c):
-        return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
+    optname = 'sops'
 
     def process(self, clusters):
         processed = []
@@ -375,11 +267,156 @@ class CireSops(CireVisitor):
 
         return processed
 
+    @property
+    def _generators(self):
+        return (GeneratorDerivatives,)
+
+    def _alias_key(self, c):
+        return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
+
+    def _cbk_in_writeto(self, dim, properties):
+        return self._opt_maxpar and PARALLEL in properties[dim]
+
+    def _cbk_select(self, e, naliases):
+        if naliases <= 1:
+            return 0
+        else:
+            return estimate_cost(e, True)*naliases // self._opt_mincost
+
 
 modes = {
-    'invariants': CireInvariants,
-    'sops': CireSops,
+    CireInvariants.optname: CireInvariants,
+    CireSops.optname: CireSops,
 }
+
+
+class Generator(object):
+
+    """
+    Defines the interface of a generator for a CireVisitor.
+    """
+
+    @classmethod
+    def generate(cls, exprs, exclude, **kwargs):
+        raise NotImplementedError
+
+
+class GeneratorExpensive(Generator):
+
+    @classmethod
+    def _uxmap_expensive(cls, exprs, exclude, make):
+        rule = lambda e: (e.is_Function or
+                          (e.is_Pow and e.exp.is_Number and e.exp < 1))
+
+        mapper = Uxmapper()
+        for e in exprs:
+            for i in search(e, rule, 'all', 'bfs_first_hit'):
+                if {a.function for a in i.free_symbols} & exclude:
+                    continue
+                mapper.add(i, make)
+
+        return mapper
+
+    @classmethod
+    def generate(cls, exprs, exclude, **kwargs):
+        counter = generator()
+        make = lambda: Scalar(name='dummy%d' % counter())
+
+        yield cls._uxmap_expensive(exprs, exclude, make)
+
+
+class GeneratorExpensiveCompounds(GeneratorExpensive):
+
+    @classmethod
+    def _uxmap_expensive_compounds(cls, exprs, exclude, make):
+        extracted = cls._uxmap_expensive(exprs, exclude, make).extracted
+        rule = lambda e: any(a in extracted for a in e.args)
+
+        mapper = Uxmapper()
+        for e in exprs:
+            for i in search(e, rule, 'all', 'dfs'):
+                if not i.is_commutative:
+                    continue
+
+                key = lambda a: a in extracted
+                terms, others = split(i.args, key)
+
+                mapper.add(i, make, terms)
+
+        return mapper
+
+    @classmethod
+    def generate(cls, exprs, exclude, **kwargs):
+        counter = generator()
+        make = lambda: Scalar(name='dummy%d' % counter())
+
+        yield cls._uxmap_expensive_compounds(exprs, exclude, make)
+
+
+class GeneratorDerivatives(Generator):
+
+    # NOTE: the following methods will be greatly simplified when we'll be able
+    # to preserve Derivative information during lowering (currently, when a Derivative
+    # is evaluated, the related information is dropped)
+
+    @classmethod
+    def _max_deriv_order(cls, exprs):
+        # NOTE: e might propagate the Derivative(...) information down from the
+        # symbolic language, but users may do crazy things and write their own custom
+        # expansions "by hand" (i.e., not resorting to Derivative(...)), hence instead
+        # of looking for Derivative(...) we use the following heuristic:
+        #   add(mul, mul, ...) -> stems from first order derivative
+        #   add(mul(add(mul, mul, ...), ...), ...) -> stems from second order derivative
+        #   ...
+        nadds = lambda e: (int(e.is_Add) +
+                           max([nadds(a) for a in e.args], default=0) if not q_leaf(e) else 0)
+        return max([nadds(e) for e in exprs], default=0)
+
+    @classmethod
+    def _search(cls, expr, n, c=0):
+        assert n >= c >= 0
+        if q_leaf(expr) or expr.is_Pow:
+            return []
+        elif expr.is_Mul:
+            if c == n:
+                return [expr]
+            else:
+                return flatten([cls._search(a, n, c+1) for a in expr.args])
+        else:
+            return flatten([cls._search(a, n, c) for a in expr.args])
+
+    @classmethod
+    def generate(cls, exprs, exclude, maxalias=False):
+        counter = generator()
+        make = lambda: Scalar(name='dummy%d' % counter())
+
+        for n in range(cls._max_deriv_order(exprs)):
+            mapper = Uxmapper()
+            for e in exprs:
+                for i in cls._search(e, n):
+                    if i.free_symbols & exclude:
+                        continue
+
+                    key = lambda a: a.is_Add
+                    terms, others = split(i.args, key)
+
+                    if maxalias:
+                        # Treat `e` as an FD expression and pull out the derivative
+                        # coefficient from `i`
+                        # Note: typically derivative coefficients are numbers, but
+                        # sometimes they could be provided in symbolic form through an
+                        # arbitrary Function.  In the latter case, we rely on the
+                        # heuristic that such Function's basically never span the whole
+                        # grid, but rather a single Grid dimension (e.g., `c[z, n]` for a
+                        # stencil of diameter `n` along `z`)
+                        if e.grid is not None and terms:
+                            key = partial(maybe_coeff_key, e.grid)
+                            others, more_terms = split(others, key)
+                            terms += more_terms
+
+                    mapper.add(i, make, terms)
+
+            yield mapper
 
 
 def collect(extracted, ispace, min_storage):
@@ -554,7 +591,7 @@ def collect(extracted, ispace, min_storage):
     return aliases
 
 
-def choose(aliases, exprs, mapper, selector):
+def choose(aliases, exprs, mapper, select):
     """
     Analyze the detected aliases and, after applying a cost model to rule out
     the aliases with a bad flops/memory trade-off, inject them into the original
@@ -569,7 +606,7 @@ def choose(aliases, exprs, mapper, selector):
     aliaseds = []
     others = []
     for e, v in aliases.items():
-        score = selector(e, len(v.aliaseds))
+        score = select(e, len(v.aliaseds))
         if score > 0:
             candidates[e] = score
             aliaseds.extend(v.aliaseds)
@@ -609,7 +646,7 @@ def choose(aliases, exprs, mapper, selector):
     return exprs, retained, tot
 
 
-def lower_aliases(aliases, aliaskey, maker):
+def lower_aliases(aliases, aliaskey, in_writeto, maxpar):
     """
     Create a Schedule from an AliasMapper.
     """
@@ -635,7 +672,7 @@ def lower_aliases(aliases, aliaskey, maker):
 
             if not (writeto or
                     interval != interval.zero() or
-                    maker._in_writeto(i.dim, aliaskey.properties)):
+                    in_writeto(i.dim, aliaskey.properties)):
                 # The alias doesn't require a temporary Dimension along i.dim
                 intervals.append(i)
                 continue
@@ -650,7 +687,7 @@ def lower_aliases(aliases, aliaskey, maker):
 
             # We further bump the interval stamp if we were requested to trade
             # fusion for more collapse-parallelism
-            interval = interval.lift(interval.stamp + int(maker._opt_maxpar))
+            interval = interval.lift(interval.stamp + int(maxpar))
 
             writeto.append(interval)
             intervals.append(interval)
@@ -1204,35 +1241,3 @@ def wset(exprs):
     """
     return {i.function for i in flatten([e.free_symbols for e in as_tuple(exprs)])
             if i.function.is_AbstractFunction}
-
-
-def potential_max_deriv_order(exprs):
-    """
-    The maximum FD derivative order in a list of expressions.
-    """
-    # NOTE: e might propagate the Derivative(...) information down from the
-    # symbolic language, but users may do crazy things and write their own custom
-    # expansions "by hand" (i.e., not resorting to Derivative(...)), hence instead
-    # of looking for Derivative(...) we use the following heuristic:
-    #   add(mul, mul, ...) -> stems from first order derivative
-    #   add(mul(add(mul, mul, ...), ...), ...) -> stems from second order derivative
-    #   ...
-    nadds = lambda e: (int(e.is_Add) +
-                       max([nadds(a) for a in e.args], default=0) if not q_leaf(e) else 0)
-    return max([nadds(e) for e in exprs], default=0)
-
-
-def search_potential_deriv(expr, n, c=0):
-    """
-    Retrieve the expressions at depth `n` that potentially stem from FD derivatives.
-    """
-    assert n >= c >= 0
-    if q_leaf(expr) or expr.is_Pow:
-        return []
-    elif expr.is_Mul:
-        if c == n:
-            return [expr]
-        else:
-            return flatten([search_potential_deriv(a, n, c+1) for a in expr.args])
-    else:
-        return flatten([search_potential_deriv(a, n, c) for a in expr.args])
