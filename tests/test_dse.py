@@ -977,7 +977,6 @@ class TestAliases(object):
         eq = Eq(u.forward, f**2*sin(f)*u.dy.dy.dy.dy.dy)
 
         op = Operator(eq, opt=('cire-sops'))
-        from IPython import embed; embed()
 
         assert op._profiler._sections['section0'].sops == 84
         assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 1
