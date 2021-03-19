@@ -113,48 +113,44 @@ class CireVisitor(Queue):
         return ()
 
     def _alias_from_clusters(self, clusters, exclude, aliaskey):
+        # [Clusters]_n -> [AliasMapper]_m
         variants = []
         for g in self._generators:
             exprs = flatten([c.exprs for c in clusters])
 
-            # Capture aliases within `exprs`
+            extractors = g.generate(exprs, exclude, maxalias=self._opt_maxalias)
+
             aliases = AliasMapper()
-            score = 0
-            for uxm in g.generate(exprs, exclude, maxalias=self._opt_maxalias):
-                # Search aliasing expressions
-                found = collect(uxm.extracted, aliaskey.ispace, self._opt_minstorage)
+            for extract in extractors:
+                mapper = extract(exprs)
 
-                # Choose the aliasing expressions with a good flops/memory trade-off
-                exprs, chosen, pscore = choose(found, exprs, uxm, self._cbk_select)
+                found = collect(mapper.extracted, aliaskey.ispace, self._opt_minstorage)
+
+                exprs, chosen = choose(found, exprs, mapper, self._cbk_select)
                 aliases.update(chosen)
-                score += pscore  #TODO: ATTACH TO ALIASES
-                from IPython import embed; embed()
 
-            # AliasMapper -> Schedule
-            schedule = lower_aliases(aliases, aliaskey, self._cbk_in_writeto, self._opt_maxpar)
-            if not schedule:
-                continue
+            if aliases:
+                variants.append(SpacePoint(aliases, exprs))
 
-            # The actual score is a 2-tuple <flop-reduction-score, workin-set-score>
-            score = (score, len(aliases))
-
-            variants.append(SpacePoint(schedule, exprs, score))
-
-        # Pick the variant with the highest score, that is the variant with the best
-        # trade-off between operation count reduction and working set size increase
+        # [AliasMapper]_m -> AliasMapper (s.t. best memory/flops trade-off)
         try:
-            schedule, exprs = pick_best(variants)
+            aliases, exprs = pick_best(variants)
         except IndexError:
             return []
 
-        # Schedule -> [Clusters]
+        # AliasMapper -> Schedule
+        schedule = lower_aliases(aliases, aliaskey, self._cbk_in_writeto, self._opt_maxpar)
+
+        # Schedule -> Schedule (optimization)
         if self._opt_rotate:
             schedule = optimize_schedule_rotations(schedule, self.sregistry)
         schedule = optimize_schedule_padding(schedule, aliaskey, self.platform)
+
+        # Schedule -> [Clusters]_k
         processed, subs = lower_schedule(schedule, aliaskey, self.sregistry,
                                          self._opt_ftemps)
 
-        # Reconstruct the input Clusters
+        # [Clusters]_k -> [Clusters]_{k+n}
         for c in clusters:
             n = len(c.exprs)
             cexprs, exprs = exprs[:n], exprs[n:]
@@ -322,7 +318,7 @@ class GeneratorExpensive(Generator):
         counter = generator()
         make = lambda: Scalar(name='dummy%d' % counter())
 
-        yield cls._uxmap_expensive(exprs, exclude, make)
+        yield lambda i: cls._uxmap_expensive(i, exclude, make)
 
 
 class GeneratorExpensiveCompounds(GeneratorExpensive):
@@ -350,7 +346,7 @@ class GeneratorExpensiveCompounds(GeneratorExpensive):
         counter = generator()
         make = lambda: Scalar(name='dummy%d' % counter())
 
-        yield cls._uxmap_expensive_compounds(exprs, exclude, make)
+        yield lambda i: cls._uxmap_expensive_compounds(i, exclude, make)
 
 
 class GeneratorDerivatives(Generator):
@@ -386,37 +382,41 @@ class GeneratorDerivatives(Generator):
             return flatten([cls._search(a, n, c) for a in expr.args])
 
     @classmethod
+    def _uxmap_derivatives(cls, exprs, exclude, maxalias, make, n):
+        mapper = Uxmapper()
+        for e in exprs:
+            for i in cls._search(e, n):
+                if i.free_symbols & exclude:
+                    continue
+
+                key = lambda a: a.is_Add
+                terms, others = split(i.args, key)
+
+                if maxalias:
+                    # Treat `e` as an FD expression and pull out the derivative
+                    # coefficient from `i`
+                    # Note: typically derivative coefficients are numbers, but
+                    # sometimes they could be provided in symbolic form through an
+                    # arbitrary Function.  In the latter case, we rely on the
+                    # heuristic that such Function's basically never span the whole
+                    # grid, but rather a single Grid dimension (e.g., `c[z, n]` for a
+                    # stencil of diameter `n` along `z`)
+                    if e.grid is not None and terms:
+                        key = partial(maybe_coeff_key, e.grid)
+                        others, more_terms = split(others, key)
+                        terms += more_terms
+
+                mapper.add(i, make, terms)
+
+        return mapper
+
+    @classmethod
     def generate(cls, exprs, exclude, maxalias=False):
         counter = generator()
         make = lambda: Scalar(name='dummy%d' % counter())
 
         for n in range(cls._max_deriv_order(exprs)):
-            mapper = Uxmapper()
-            for e in exprs:
-                for i in cls._search(e, n):
-                    if i.free_symbols & exclude:
-                        continue
-
-                    key = lambda a: a.is_Add
-                    terms, others = split(i.args, key)
-
-                    if maxalias:
-                        # Treat `e` as an FD expression and pull out the derivative
-                        # coefficient from `i`
-                        # Note: typically derivative coefficients are numbers, but
-                        # sometimes they could be provided in symbolic form through an
-                        # arbitrary Function.  In the latter case, we rely on the
-                        # heuristic that such Function's basically never span the whole
-                        # grid, but rather a single Grid dimension (e.g., `c[z, n]` for a
-                        # stencil of diameter `n` along `z`)
-                        if e.grid is not None and terms:
-                            key = partial(maybe_coeff_key, e.grid)
-                            others, more_terms = split(others, key)
-                            terms += more_terms
-
-                    mapper.add(i, make, terms)
-
-            yield mapper
+            yield lambda i: cls._uxmap_derivatives(i, exclude, maxalias, make, n)
 
 
 def collect(extracted, ispace, min_storage):
@@ -594,10 +594,9 @@ def collect(extracted, ispace, min_storage):
 def choose(aliases, exprs, mapper, select):
     """
     Analyze the detected aliases and, after applying a cost model to rule out
-    the aliases with a bad flops/memory trade-off, inject them into the original
+    the aliases with a bad memory/flops trade-off, inject them into the original
     expressions.
     """
-    tot = 0
     retained = AliasMapper()
 
     # Pass 1: a set of aliasing expressions is retained only if its cost
@@ -615,7 +614,7 @@ def choose(aliases, exprs, mapper, select):
 
     # Do not waste time if unneccesary
     if not candidates:
-        return exprs, retained, tot
+        return exprs, retained
 
     # Project the candidate aliases into exprs to determine what the new
     # working set would be
@@ -632,18 +631,17 @@ def choose(aliases, exprs, mapper, select):
             score = 0
         if score > 1 or \
            score == 1 and max(len(wset(e)), 1) > len(wset(e) & owset):
-            retained[e] = v
-            tot += score
+            retained.addv(e, v, score)
 
     # Do not waste time if unneccesary
     if not retained:
-        return exprs, retained, tot
+        return exprs, retained
 
     # Substitute the chosen aliasing sub-expressions
     mapper = {k: v for k, v in mapper.items() if v.free_symbols & set(retained.aliaseds)}
     exprs = [uxreplace(e, mapper) for e in exprs]
 
-    return exprs, retained, tot
+    return exprs, retained
 
 
 def lower_aliases(aliases, aliaskey, in_writeto, maxpar):
@@ -930,12 +928,12 @@ def pick_best(variants):
     """
     best = variants.pop(0)
     for i in variants:
-        best_flop_score, best_ws_score = best.score
+        best_flop_score, best_ws_score = best.aliases.score
         if best_flop_score == 0:
             best = i
             continue
 
-        i_flop_score, i_ws_score = i.score
+        i_flop_score, i_ws_score = i.aliases.score
 
         # The current heustic is fairly basic: the one with smaller working
         # set size increase wins, unless there's a massive reduction in operation
@@ -946,9 +944,7 @@ def pick_best(variants):
            (delta < 0 and best_flop_score / i_flop_score <= 100):
             best = i
 
-    schedule, exprs, _ = best
-
-    return schedule, exprs
+    return best
 
 
 # Utilities
@@ -1157,12 +1153,12 @@ class Group(tuple):
 
 
 AliasKey = namedtuple('AliasKey', 'ispace dintervals dtype guards properties')
-AliasedGroup = namedtuple('AliasedGroup', 'intervals aliaseds distances')
+AliasedGroup = namedtuple('AliasedGroup', 'intervals aliaseds distances score')
 
 ScheduledAlias = namedtuple('ScheduledAlias', 'alias writeto ispace aliaseds indicess')
 ScheduledAlias.__new__.__defaults__ = (None,) * len(ScheduledAlias._fields)
 
-SpacePoint = namedtuple('SpacePoint', 'schedule exprs score')
+SpacePoint = namedtuple('SpacePoint', 'aliases exprs')
 
 
 class Schedule(tuple):
@@ -1178,22 +1174,20 @@ class AliasMapper(OrderedDict):
 
     def add(self, alias, intervals, aliaseds, distances):
         assert len(aliaseds) == len(distances)
-        self[alias] = AliasedGroup(intervals, aliaseds, distances)
+        self[alias] = AliasedGroup(intervals, aliaseds, distances, 0)
 
-    def update(self, aliases):
-        for k, v in aliases.items():
-            try:
-                v0 = self[k]
-                if v0.intervals != v.intervals:
-                    raise ValueError
-                v0.aliaseds.extend(v.aliaseds)
-                v0.distances.extend(v.distances)
-            except KeyError:
-                self[k] = v
+    def addv(self, alias, ag, score):
+        assert alias not in self
+        self[alias] = AliasedGroup(ag.intervals, ag.aliaseds, ag.distances, score)
 
     @property
     def aliaseds(self):
         return flatten(i.aliaseds for i in self.values())
+
+    @property
+    def score(self):
+        # The score is a 2-tuple <flop-reduction-score, workin-set-score>
+        return (sum(i.score for i in self.values()), len(self))
 
 
 def make_rotations_table(d, v):
