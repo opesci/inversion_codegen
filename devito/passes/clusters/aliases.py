@@ -918,10 +918,6 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
                 properties[d] = normalize_properties(v, {PARALLEL_IF_PVT})
 
         # Finally, build the `alias` Cluster
-        #TODO: make sure syncs is unnecessary here....
-        #TODO: run 
-        # DEVITO_LANGUAGE=openmp DEVITO_PLATFORM=nvidiaX py.test test_gpu_common.py::TestStreaming::test_tasking_over_compiler_generated -r f -x -vv -s
-        # TODO: change it such that Tasking ALSO occurs BEFORE cire-sops... (parametrize?)
         clusters.append(Cluster(expression, ispace, dspace, meta.guards, properties))
 
     return clusters, subs
