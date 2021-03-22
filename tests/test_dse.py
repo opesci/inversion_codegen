@@ -1336,6 +1336,7 @@ class TestAliases(object):
 
         op = Operator([pde, df])
 
+        # Check code generation
         trees = retrieve_iteration_tree(op)
         assert len(trees) == 3
         assert len(trees[0]) == 3  # time, x, y
@@ -1346,6 +1347,30 @@ class TestAliases(object):
         trees = retrieve_iteration_tree(op._func_table['bf0'].root)
         assert len(trees) == 1
         assert len(trees[0]) == 4  # f-blocked, f, x, y
+
+    def test_space_invariant_v2(self):
+        """
+        Similar to test_space_invariant, but now the invariance is only w.r.t.
+        one of the inner space dimensions.
+        """
+        grid = Grid(shape=(10, 10))
+        _, y = grid.dimensions
+        time = grid.time_dim
+
+        u = TimeFunction(name="u", grid=grid, time_order=2, space_order=8)
+
+        eq = Eq(u.forward, u*sin(y + y.symbolic_max))
+
+        op = Operator(eq)
+
+        # Check code generation
+        ys = self.get_params(op, 'y_size')[0]
+        arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
+        assert len(arrays) == 1
+        self.check_array(arrays[0], ((0, 0),), (ys,))
+        trees = retrieve_iteration_tree(op)
+        assert len(trees) == 2
+        assert trees[0].root.dim is y
 
     def test_catch_duplicate_from_different_clusters(self):
         """
