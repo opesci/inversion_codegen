@@ -602,13 +602,15 @@ class TestStreaming(object):
 
         op0 = Operator(eqns, opt=('cire-sops', {'gpu-fit': usave}))
         op1 = Operator(eqns, opt=('cire-sops', 'tasking', 'orchestrate'))
+        op2 = Operator(eqns, opt=('tasking', 'cire-sops', 'orchestrate'))
 
         # Check generated code
-        assert len(retrieve_iteration_tree(op1)) == 5
-        assert len([i for i in FindSymbols().visit(op1) if isinstance(i, Lock)]) == 1
-        sections = FindNodes(Section).visit(op1)
-        assert len(sections) == 3
-        assert 'while(lock0[t' in str(sections[1].body[0].body[0].body[0])
+        for op in [op1, op2]:
+            assert len(retrieve_iteration_tree(op)) == 5
+            assert len([i for i in FindSymbols().visit(op) if isinstance(i, Lock)]) == 1
+            sections = FindNodes(Section).visit(op)
+            assert len(sections) == 3
+            assert 'while(lock0[t1] == 0)' in str(sections[1].body[0].body[0].body[0])
 
         op0.apply(time_M=nt-1)
         op1.apply(time_M=nt-1, u=u1, usave=usave1)
