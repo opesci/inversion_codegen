@@ -84,9 +84,11 @@ def cire(clusters, mode, sregistry, options, platform):
     return modes[mode](sregistry, options, platform).process(clusters)
 
 
-class CireVisitor(Queue):
-    #TODO: CireVisitor -> CireTransformer
-    #Only CireInvariants inherits from Queue (and CireVisitor)
+class CireTransformer(object):
+
+    """
+    Abstract base class for transformers implementing a CIRE variant.
+    """
 
     optname = None
 
@@ -98,23 +100,8 @@ class CireVisitor(Queue):
         self.opt_rotate = options['cire-rotate']
         self.opt_ftemps = options['cire-ftemps']
         self.opt_mincost = options['cire-mincost'][self.optname]
-        self.opt_maxpar = options['cire-maxpar']
-        self.opt_maxalias = options['cire-maxalias']
 
-    def process(self, clusters):
-        return self._process_fatd(clusters, 1)
-
-    @property
-    def _generators(self):
-        """
-        A CireVisitor uses one or more Generators to extracts sub-expressions
-        that are potential CIRE candidates. Different Generators may capture
-        different sets of sub-expressions, and therefore be characterized by
-        different memory/flops trade-offs.
-        """
-        return ()
-
-    def _alias_from_clusters(self, clusters, exclude, meta):
+    def _aliases_from_clusters(self, clusters, exclude, meta):
         # [Clusters]_n -> [AliasMapper]_m
         variants = []
         for g in self._generators:
@@ -141,7 +128,7 @@ class CireVisitor(Queue):
             return []
 
         # AliasMapper -> Schedule
-        schedule = lower_aliases(aliases, meta, self._cbk_in_writeto, self.opt_maxpar)
+        schedule = lower_aliases(aliases, meta, self.opt_maxpar)
 
         # Schedule -> Schedule (optimization)
         if self.opt_rotate:
@@ -172,19 +159,44 @@ class CireVisitor(Queue):
 
         return processed
 
-    def _mode_key(self, c):
+    @property
+    def _generators(self):
+        """
+        A CireTransformer uses one or more Generators to extract sub-expressions
+        that are potential CIRE candidates. Different Generators may capture
+        different sets of sub-expressions, and therefore be characterized by
+        different memory/flops trade-offs.
+        """
         raise NotImplementedError
 
-    def _cbk_in_writeto(self, dim, properties):
+    def _lookup_key(self, c):
+        """
+        Create a key for the given Cluster. Clusters with same key may be processed
+        together to find redundant aliases. Clusters should have a different key
+        if they cannot be processed together, e.g., when this would lead to
+        dependencies violation.
+        """
         raise NotImplementedError
 
     def _cbk_select(self, e, naliases):
         raise NotImplementedError
 
+    def process(self, clusters):
+        raise NotImplementedError
 
-class CireInvariants(CireVisitor):
+
+class CireInvariants(CireTransformer, Queue):
 
     optname = 'invariants'
+
+    def __init__(self, sregistry, options, platform):
+        super().__init__(sregistry, options, platform)
+
+        self.opt_maxpar = True
+        self.opt_maxalias = False
+
+    def process(self, clusters):
+        return self._process_fatd(clusters, 1)
 
     def callback(self, clusters, prefix):
         if not prefix:
@@ -198,7 +210,7 @@ class CireInvariants(CireVisitor):
         # currently investigated
         exclude.add(d)
 
-        key = lambda c: self._mode_key(c, d)
+        key = lambda c: self._lookup_key(c, d)
         processed = list(clusters)
         for ak, group in as_mapper(clusters, key=key).items():
             g = list(group)
@@ -206,9 +218,8 @@ class CireInvariants(CireVisitor):
             if any(not c.is_dense for c in g):
                 continue
 
-            made = self._alias_from_clusters(g, exclude, ak)
+            made = self._aliases_from_clusters(g, exclude, ak)
 
-            # Insert the transformed clusters at the right place
             if made:
                 for n, c in enumerate(g, -len(g)):
                     processed[processed.index(c)] = made.pop(n)
@@ -220,14 +231,11 @@ class CireInvariants(CireVisitor):
     def _generators(self):
         return (GeneratorExpensive, GeneratorExpensiveCompounds)
 
-    def _mode_key(self, c, d):
+    def _lookup_key(self, c, d):
         ispace = c.ispace.reset()
         dintervals = c.dspace.intervals.drop(d).reset()
         properties = frozendict({d: relax_properties(v) for d, v in c.properties.items()})
-        return ModeKey(ispace, dintervals, c.dtype, None, properties)
-
-    def _cbk_in_writeto(self, dim, properties):
-        return PARALLEL in properties[dim]
+        return AliasKey(ispace, dintervals, c.dtype, None, properties)
 
     def _cbk_select(self, e, naliases):
         if all(i.function.is_Symbol for i in e.free_symbols):
@@ -238,9 +246,15 @@ class CireInvariants(CireVisitor):
         return estimate_cost(e, True)*naliases // mincost
 
 
-class CireSops(CireVisitor):
+class CireSops(CireTransformer):
 
     optname = 'sops'
+
+    def __init__(self, sregistry, options, platform):
+        super().__init__(sregistry, options, platform)
+
+        self.opt_maxpar = options['cire-maxpar']
+        self.opt_maxalias = options['cire-maxalias']
 
     def process(self, clusters):
         processed = []
@@ -254,12 +268,9 @@ class CireSops(CireVisitor):
             # u[x, y] = ... r0*a[x, y] ...
             exclude = {i.source.indexed for i in c.scope.d_flow.independent()}
 
-            made = self._alias_from_clusters([c], exclude, self._mode_key(c))
+            made = self._aliases_from_clusters([c], exclude, self._lookup_key(c))
 
-            if made:
-                processed.extend(flatten(made))
-            else:
-                processed.append(c)
+            processed.extend(flatten(made) or [c])
 
         return processed
 
@@ -267,11 +278,8 @@ class CireSops(CireVisitor):
     def _generators(self):
         return (GeneratorDerivatives,)
 
-    def _mode_key(self, c):
-        return ModeKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
-
-    def _cbk_in_writeto(self, dim, properties):
-        return self.opt_maxpar and PARALLEL in properties[dim]
+    def _lookup_key(self, c):
+        return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
 
     def _cbk_select(self, e, naliases):
         if naliases <= 1:
@@ -289,7 +297,7 @@ modes = {
 class Generator(object):
 
     """
-    Defines the interface of a generator for a CireVisitor.
+    Defines the interface of a generator for a CireTransformer.
     """
 
     @classmethod
@@ -419,7 +427,7 @@ class GeneratorDerivatives(Generator):
             yield lambda i: cls._uxmap_derivatives(i, exclude, maxalias, make, n)
 
 
-def collect(extracted, ispace, min_storage):
+def collect(extracted, ispace, minstorage):
     """
     Find groups of aliasing expressions.
 
@@ -508,7 +516,7 @@ def collect(extracted, ispace, min_storage):
             unseen.remove(u)
         group = Group(group)
 
-        if min_storage:
+        if minstorage:
             k = group.dimensions_translated
         else:
             k = group.dimensions
@@ -644,7 +652,7 @@ def choose(aliases, exprs, mapper, select):
     return exprs, retained
 
 
-def lower_aliases(aliases, meta, in_writeto, maxpar):
+def lower_aliases(aliases, meta, maxpar):
     """
     Create a Schedule from an AliasMapper.
     """
@@ -668,9 +676,7 @@ def lower_aliases(aliases, meta, in_writeto, maxpar):
 
             assert i.stamp >= interval.stamp
 
-            if not (writeto or
-                    interval != interval.zero() or
-                    in_writeto(i.dim, meta.properties)):
+            if not (writeto or interval != interval.zero() or maxpar):
                 # The alias doesn't require a temporary Dimension along i.dim
                 intervals.append(i)
                 continue
@@ -1152,7 +1158,7 @@ class Group(tuple):
         return ret
 
 
-ModeKey = namedtuple('ModeKey', 'ispace dintervals dtype guards properties')
+AliasKey = namedtuple('AliasKey', 'ispace dintervals dtype guards properties')
 AliasedGroup = namedtuple('AliasedGroup', 'intervals aliaseds distances score')
 
 ScheduledAlias = namedtuple('ScheduledAlias', 'alias writeto ispace aliaseds indicess')
