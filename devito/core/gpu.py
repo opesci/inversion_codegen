@@ -150,12 +150,12 @@ class DeviceAdvOperator(DeviceOperatorMixin, CoreOperator):
         clusters = factorize(clusters)
         clusters = optimize_pows(clusters)
 
+        # The previous passes may have created fusion opportunities
+        #TODO: UPDATE DEVITOPRO!!!
+        clusters = fuse(clusters)
+
         # Reduce flops (no arithmetic alterations)
         clusters = cse(clusters, sregistry)
-
-        # Lifting may create fusion opportunities
-        #TODO: DROP???
-        clusters = fuse(clusters)
 
         return clusters
 
