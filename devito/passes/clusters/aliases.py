@@ -196,7 +196,7 @@ class CireInvariants(CireTransformer, Queue):
         self.opt_maxalias = False
 
     def process(self, clusters):
-        return self._process_fatd(clusters, 1)
+        return self._process_fdta(clusters, 1)
 
     def callback(self, clusters, prefix):
         if not prefix:
@@ -212,11 +212,14 @@ class CireInvariants(CireTransformer, Queue):
 
         key = lambda c: self._lookup_key(c, d)
         processed = list(clusters)
+        #TODO: SORT AS_MAPPER FOR DETERMINISTIC CODE GEN OR USE ORDEREDDICT
+        #..... ACTUALLY ... use GROUPBY?
         for ak, group in as_mapper(clusters, key=key).items():
-            g = list(group)
-
-            if any(not c.is_dense for c in g):
-                continue
+            g = []
+            for c in group:
+                if c.is_dense and \
+                   not any(i.is_Array for i in c.scope.writes):
+                    g.append(c)
 
             made = self._aliases_from_clusters(g, exclude, ak)
 
@@ -238,11 +241,12 @@ class CireInvariants(CireTransformer, Queue):
         return AliasKey(ispace, dintervals, c.dtype, None, properties)
 
     def _cbk_select(self, e, naliases):
-        if all(i.function.is_Symbol for i in e.free_symbols):
+        if e.is_Function or any(not i.function.is_Symbol for i in e.free_symbols):
+            #TODO: IMPROVE ME
+            mincost = self.opt_mincost['tensor']
+        else:
             # E.g., `dt**(-2)`
             mincost = self.opt_mincost['scalar']
-        else:
-            mincost = self.opt_mincost['tensor']
         return estimate_cost(e, True)*naliases // mincost
 
 
@@ -670,9 +674,15 @@ def lower_aliases(aliases, meta, maxpar):
             try:
                 interval = imapper[i.dim]
             except KeyError:
-                # E.g., `x0_blk0` or (`a[y_m+1]` => `y not in imapper`)
-                intervals.append(i)
-                continue
+                if i.dim in alias.free_symbols:
+                    # Special case: the Dimension appears within `alias` but not
+                    # as an Indexed index. Then, it needs to be addeed to the
+                    # `writeto` region too
+                    interval = i
+                else:
+                    # E.g., `x0_blk0` or (`a[y_m+1]` => `y not in imapper`)
+                    intervals.append(i)
+                    continue
 
             assert i.stamp >= interval.stamp
 
@@ -722,7 +732,10 @@ def lower_aliases(aliases, meta, maxpar):
 
             # Given the iteration `interval`, lower distances to indices
             for distance, indices in zip(v.distances, indicess):
-                indices.append(d - interval.lower + distance[interval.dim])
+                try:
+                    indices.append(d - interval.lower + distance[interval.dim])
+                except TypeError:
+                    indices.append(d)
 
         # The alias write-to space
         writeto = IterationSpace(IntervalGroup(writeto), sub_iterators)
