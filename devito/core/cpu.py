@@ -173,17 +173,16 @@ class Cpu64AdvOperator(Cpu64OperatorMixin, CoreOperator):
         # Blocking to improve data locality
         clusters = blocking(clusters, options)
 
-        # Reduce flops (potential arithmetic alterations)
+        # Reduce flops
         clusters = extract_increments(clusters, sregistry)
         clusters = cire(clusters, 'sops', sregistry, options, platform)
         clusters = factorize(clusters)
         clusters = optimize_pows(clusters)
 
         # The previous passes may have created fusion opportunities
-        #TODO: DROP??
         clusters = fuse(clusters)
 
-        # Reduce flops (no arithmetic alterations)
+        # Reduce flops
         clusters = cse(clusters, sregistry)
 
         return clusters
@@ -260,8 +259,6 @@ class Cpu64FsgOperator(Cpu64AdvOperator):
         clusters = optimize_pows(clusters)
 
         # The previous passes may have created fusion opportunities
-        #TODO: DROP??? 
-        #TODO: UPDATE DEVITOPRO!!!
         clusters = fuse(clusters)
 
         # Reduce flops (no arithmetic alterations)
