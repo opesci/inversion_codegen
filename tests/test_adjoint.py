@@ -117,33 +117,39 @@ class TestAdjoint(object):
              % (term1, term2, (term1 - term2)/term1, term1 / term2))
         assert np.isclose((term1 - term2)/term1, 0., atol=1.e-11)
 
-    @pytest.mark.parametrize('mkey, shape, kernel, space_order, setup_func', [
+    @pytest.mark.parametrize('mkey, shape, kernel, space_order, time_order, setup_func', [
         # 1 tests with varying space orders
-        ('layers', (60, ), 'OT2', 12, acoustic_setup),
-        ('layers', (60, ), 'OT2', 8, acoustic_setup),
-        ('layers', (60, ), 'OT2', 4, acoustic_setup),
+        ('layers', (60, ), 'OT2', 12, 2, acoustic_setup),
+        ('layers', (60, ), 'OT2', 8, 2, acoustic_setup),
+        ('layers', (60, ), 'OT2', 4, 2, acoustic_setup),
         # 2D tests with varying space orders
-        ('layers', (60, 70), 'OT2', 12, acoustic_setup),
-        ('layers', (60, 70), 'OT2', 8, acoustic_setup),
-        ('layers', (60, 70), 'OT2', 4, acoustic_setup),
+        ('layers', (60, 70), 'OT2', 12, 2, acoustic_setup),
+        ('layers', (60, 70), 'OT2', 8, 2, acoustic_setup),
+        ('layers', (60, 70), 'OT2', 4, 2, acoustic_setup),
         # 3D tests with varying time and space orders
-        ('layers', (40, 50, 30), 'OT2', 12, acoustic_setup),
-        ('layers', (40, 50, 30), 'OT2', 8, acoustic_setup),
-        ('layers', (40, 50, 30), 'OT2', 4, acoustic_setup),
+        ('layers', (40, 50, 30), 'OT2', 12, 2, acoustic_setup),
+        ('layers', (40, 50, 30), 'OT2', 8, 2, acoustic_setup),
+        ('layers', (40, 50, 30), 'OT2', 4, 2, acoustic_setup),
         # 2D TTI tests with varying space orders
-        ('layers-tti', (20, 25), 'centered', 8, tti_setup),
-        ('layers-tti', (20, 25), 'centered', 4, tti_setup),
+        ('layers-tti', (20, 25), 'centered', 8, 2, tti_setup),
+        ('layers-tti', (20, 25), 'centered', 4, 2, tti_setup),
         # 3D TTI tests with varying space orders
-        ('layers-tti', (20, 25, 30), 'centered', 8, tti_setup),
-        ('layers-tti', (20, 25, 30), 'centered', 4, tti_setup),
+        ('layers-tti', (20, 25, 30), 'centered', 8, 2, tti_setup),
+        ('layers-tti', (20, 25, 30), 'centered', 4, 2, tti_setup),
         # 2D viscoacoustic tests with varying space orders
-        ('layers-viscoacoustic', (20, 25), 'sls', 8, viscoacoustic_setup),
-        ('layers-viscoacoustic', (20, 25), 'sls', 4, viscoacoustic_setup),
+        ('layers-viscoacoustic', (20, 25), 'sls', 8, 2, viscoacoustic_setup),
+        ('layers-viscoacoustic', (20, 25), 'sls', 4, 2, viscoacoustic_setup),
         # 3D viscoacoustic tests with varying space orders
-        ('layers-viscoacoustic', (20, 25, 30), 'sls', 8, viscoacoustic_setup),
-        ('layers-viscoacoustic', (20, 25, 30), 'sls', 4, viscoacoustic_setup),
+        ('layers-viscoacoustic', (20, 25, 30), 'sls', 8, 2, viscoacoustic_setup),
+        ('layers-viscoacoustic', (20, 25, 30), 'sls', 4, 2, viscoacoustic_setup),
+        # 2D viscoacoustic tests with varying space orders
+        ('layers-viscoacoustic', (20, 25), 'sls', 8, 1, viscoacoustic_setup),
+        ('layers-viscoacoustic', (20, 25), 'sls', 4, 1, viscoacoustic_setup),
+        # 3D viscoacoustic tests with varying space orders
+        ('layers-viscoacoustic', (20, 25, 30), 'sls', 8, 1, viscoacoustic_setup),
+        ('layers-viscoacoustic', (20, 25, 30), 'sls', 4, 1, viscoacoustic_setup),
     ])
-    def test_adjoint_J(self, mkey, shape, kernel, space_order, setup_func):
+    def test_adjoint_J(self, mkey, shape, kernel, space_order, time_order, setup_func):
         """
         Adjoint test for the FWI Jacobian operator.
         The Jacobian operator J generates a linearized shot record (measurements)

@@ -2,7 +2,7 @@ import sympy as sp
 import numpy as np
 
 from devito import (Eq, Operator, VectorTimeFunction, TimeFunction, Function, NODE,
-                    div, grad, Inc)
+                    div, grad)
 from examples.seismic import PointSource, Receiver
 
 
@@ -22,27 +22,23 @@ def src_rec(p, model, geometry, **kwargs):
     forward = kwargs.get('forward', True)
     time_order = p.time_order
 
+    scale = dt / m if time_order == 1 else dt**2 / m
+
     if forward:
         # The source injection term
-        if(time_order == 1):
-            src_term = src.inject(field=p.forward, expr=src * dt)
-        else:
-            src_term = src.inject(field=p.forward, expr=src * dt**2 / m)
+        src_term = src.inject(field=p.forward, expr=src * scale)
         # Create interpolation expression for receivers
         rec_term = rec.interpolate(expr=p)
     else:
         # Construct expression to inject receiver values
-        if(time_order == 1):
-            rec_term = rec.inject(field=p.backward, expr=rec * dt)
-        else:
-            rec_term = rec.inject(field=p.backward, expr=rec * dt**2 / m)
+        rec_term = rec.inject(field=p.backward, expr=rec * scale)
         # Create interpolation expression for the adjoint-source
         src_term = src.interpolate(expr=p)
 
-    return src_term + rec_term
+    return [src_term, rec_term]
 
 
-def sls_1st_order(model, geometry, p, **kwargs):
+def sls_1st_order(model, geometry, p, r=None, **kwargs):
     """
     Implementation of the 1st order viscoacoustic wave-equation
     from Blanch and Symes (1995) / Dutta and Schuster (2014).
@@ -54,6 +50,8 @@ def sls_1st_order(model, geometry, p, **kwargs):
     ----------
     p : TimeFunction
         Pressure field.
+    r : TimeFunction
+        Memory variable.
     """
     forward = kwargs.get('forward', True)
     space_order = p.space_order
@@ -65,6 +63,7 @@ def sls_1st_order(model, geometry, p, **kwargs):
     damp = model.damp
     qp = model.qp
     f0 = geometry._f0
+    q = kwargs.get('q', 0)
 
     # Particle Velocity
     v = kwargs.pop('v')
@@ -85,8 +84,8 @@ def sls_1st_order(model, geometry, p, **kwargs):
     bm = rho * vp**2
 
     # Attenuation Memory variable.
-    r = TimeFunction(name="r", grid=model.grid, time_order=1, space_order=space_order,
-                     save=save_t, staggered=NODE)
+    r = r or TimeFunction(name="r", grid=model.grid, time_order=1,
+                          space_order=space_order, save=save_t, staggered=NODE)
 
     if forward:
 
@@ -94,10 +93,11 @@ def sls_1st_order(model, geometry, p, **kwargs):
         pde_v = v - s * b * grad(p)
         u_v = Eq(v.forward, damp * pde_v)
 
-        pde_r = r - s * (1. / t_s) * r - s * (1. / t_s) * tt * bm * div(v.forward)
+        pde_r = r - s * (1. / t_s) * r - s * (1. / t_s) * tt * rho * div(v.forward)
         u_r = Eq(r.forward, damp * pde_r)
 
-        pde_p = p - s * bm * (tt + 1.) * div(v.forward) - s * r.forward
+        pde_p = p - s * bm * (tt + 1.) * div(v.forward) - s * vp * vp * r.forward + \
+            s * vp * vp * q
         u_p = Eq(p.forward, damp * pde_p)
 
         return [u_v, u_r, u_p]
@@ -108,11 +108,11 @@ def sls_1st_order(model, geometry, p, **kwargs):
         pde_r = r - s * (1. / t_s) * r - s * p
         u_r = Eq(r.backward, damp * pde_r)
 
-        pde_v = v + s * grad(bm * (1. + tt) * p) + s * \
-            grad((1. / t_s) * bm * tt * r.backward)
+        pde_v = v + s * grad(rho * (1. + tt) * p) + s * \
+            grad((1. / t_s) * rho * tt * r.backward)
         u_v = Eq(v.backward, damp * pde_v)
 
-        pde_p = p + s * div(b * v.backward)
+        pde_p = p + s * vp * vp * div(b * v.backward)
         u_p = Eq(p.backward, damp * pde_p)
 
         return [u_r, u_v, u_p]
@@ -228,7 +228,7 @@ def ren_1st_order(model, geometry, p, **kwargs):
         u_v = Eq(v.forward, damp * pde_v)
 
         pde_p = p - s * bm * div(v.forward) + \
-            s * ((vp**2 * rho) / (w0 * qp)) * div(b * grad(p, shift=.5), shift=-.5)
+            s * eta * rho * div(b * grad(p, shift=.5), shift=-.5)
         u_p = Eq(p.forward, damp * pde_p)
 
         return [u_v, u_p]
@@ -502,10 +502,10 @@ def ForwardOperator(model, geometry, space_order=4, kernel='sls', time_order=2,
     eq_kernel = kernels[kernel]
     eqn = eq_kernel(model, geometry, p, save=save, **kwargs)
 
-    srcrec = src_rec(p, model, geometry)
+    src_term, rec_term = src_rec(p, model, geometry)
 
     # Substitute spacing terms to reduce flops
-    return Operator(eqn + srcrec, subs=model.spacing_map,
+    return Operator(eqn + src_term + rec_term, subs=model.spacing_map,
                     name='Forward', **kwargs)
 
 
@@ -543,10 +543,11 @@ def AdjointOperator(model, geometry, space_order=4, kernel='sls', time_order=2, 
     eq_kernel = kernels[kernel]
     eqn = eq_kernel(model, geometry, pa, forward=False, **kwargs)
 
-    srcrec = src_rec(pa, model, geometry, forward=False)
+    src_term, rec_term = src_rec(pa, model, geometry, forward=False)
 
     # Substitute spacing terms to reduce flops
-    return Operator(eqn + srcrec, subs=model.spacing_map, name='Adjoint', **kwargs)
+    return Operator(eqn + src_term + rec_term, subs=model.spacing_map,
+                    name='Adjoint', **kwargs)
 
 
 def GradientOperator(model, geometry, space_order=4, kernel='sls', time_order=2,
@@ -578,16 +579,24 @@ def GradientOperator(model, geometry, space_order=4, kernel='sls', time_order=2,
     save_t = geometry.nt if save else None
 
     grad = Function(name='grad', grid=model.grid)
-    p = TimeFunction(name='p', grid=model.grid, time_order=2, space_order=space_order,
-                     save=save_t, staggered=NODE)
+    p = TimeFunction(name='p', grid=model.grid, time_order=time_order,
+                     space_order=space_order, save=save_t, staggered=NODE)
     pa = TimeFunction(name='pa', grid=model.grid, time_order=time_order,
                       space_order=space_order, staggered=NODE)
+
+    if time_order == 1:
+        va = VectorTimeFunction(name="va", grid=model.grid, time_order=time_order,
+                                space_order=space_order)
+        kwargs.update({'v': va})
 
     # Equations kernels
     eq_kernel = kernels[kernel]
     eqn = eq_kernel(model, geometry, pa, forward=False, save=False, **kwargs)
 
-    gradient_update = Inc(grad, - p.dt2 * pa)
+    if time_order == 1:
+        gradient_update = Eq(grad, grad - p.dt * pa)
+    else:
+        gradient_update = Eq(grad, grad + p.dt * pa.dt)
 
     # Add expression for receiver injection
     _, recterm = src_rec(pa, model, geometry, forward=False)
@@ -624,13 +633,25 @@ def BornOperator(model, geometry, space_order=4, kernel='sls', time_order=2, **k
                       space_order=space_order, staggered=NODE)
     dm = Function(name='dm', grid=model.grid, space_order=0)
 
+    if time_order == 1:
+        v = VectorTimeFunction(name="v", grid=model.grid,
+                               time_order=time_order, space_order=space_order)
+        kwargs.update({'v': v})
+
     # Equations kernels
     eq_kernel = kernels[kernel]
     eqn1 = eq_kernel(model, geometry, p, r=rp, **kwargs)
 
     s = model.grid.stepping_dim.spacing
 
-    q = -dm * (p.forward - 2 * p + p.backward) / (s**2)
+    if time_order == 1:
+        dv = VectorTimeFunction(name="dv", grid=model.grid,
+                                time_order=time_order, space_order=space_order)
+        kwargs.update({'v': dv})
+
+        q = -dm * (p.forward - p) / s
+    else:
+        q = -dm * (p.forward - 2 * p + p.backward) / (s**2)
 
     eqn2 = eq_kernel(model, geometry, P, r=rP, q=q, **kwargs)
 
