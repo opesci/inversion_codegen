@@ -112,10 +112,11 @@ class CireTransformer(object):
             aliases = AliasList()
             for extract in extractors:
                 mapper = extract(exprs)
+                extracted = mapper.extracted
 
-                found = collect(mapper.extracted, meta.ispace, self.opt_minstorage)
+                found = collect(extracted, meta.ispace, self.opt_minstorage, self._scorer)
 
-                exprs, chosen = choose(found, exprs, mapper, self._cbk_select)
+                exprs, chosen = choose(found, exprs, mapper)
                 aliases.update(chosen)
 
             if aliases:
@@ -178,7 +179,11 @@ class CireTransformer(object):
         """
         raise NotImplementedError
 
-    def _cbk_select(self, alias):
+    def _scorer(self, pivot, naliases):
+        """
+        Give an integer score to an alias. The higher the score, the more expensive
+        the alias is.
+        """
         raise NotImplementedError
 
     def process(self, clusters):
@@ -239,13 +244,13 @@ class CireInvariants(CireTransformer, Queue):
         properties = frozendict({d: relax_properties(v) for d, v in c.properties.items()})
         return AliasKey(ispace, dintervals, c.dtype, None, properties)
 
-    def _cbk_select(self, alias):
-        if alias.is_scalar:
-            # E.g., `dt**(-2)`
+    def _scorer(self, pivot, naliases):
+        if not any(i.is_Dimension for i in pivot.free_symbols):
+            # Made of scalars -- e.g., `dt**(-2)`
             mincost = self.opt_mincost['scalar']
         else:
             mincost = self.opt_mincost['tensor']
-        return alias.cost // mincost
+        return estimate_cost(pivot, True)*naliases // mincost
 
 
 class CireSops(CireTransformer):
@@ -283,11 +288,11 @@ class CireSops(CireTransformer):
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
 
-    def _cbk_select(self, alias):
-        if alias.naliases <= 1:
+    def _scorer(self, pivot, naliases):
+        if naliases <= 1:
             return 0
         else:
-            return alias.cost // self.opt_mincost
+            return estimate_cost(pivot, True)*naliases // self.opt_mincost
 
 
 modes = {
@@ -429,7 +434,7 @@ class GeneratorDerivatives(Generator):
             yield lambda i: cls._uxmap_derivatives(i, exclude, maxalias, make, n)
 
 
-def collect(extracted, ispace, minstorage):
+def collect(extracted, ispace, minstorage, scorer):
     """
     Find groups of aliasing expressions.
 
@@ -596,62 +601,46 @@ def collect(extracted, ispace, minstorage):
                 distance = [(d, set(v)) for d, v in LabeledVector.transpose(*distance)]
                 distances.append(LabeledVector([(d, v.pop()) for d, v in distance]))
 
-            aliases.add(pivot, aliaseds, list(mapper), distances)
+            # Compute the alias score. With a score of 0, the alias is discarded
+            score = scorer(pivot, len(aliaseds))
+            if score > 0:
+                aliases.add(pivot, aliaseds, list(mapper), distances, score)
 
     return aliases
 
 
-def choose(aliases, exprs, mapper, select):
+def choose(aliases, exprs, mapper):
     """
     Analyze the detected aliases and, after applying a cost model to rule out
     the aliases with a bad memory/flops trade-off, inject them into the original
     expressions.
     """
-    retained = AliasList()
+    aliases = AliasList(aliases)
 
-    # Pass 1: a set of aliasing expressions is retained only if its cost
-    # exceeds the mode's threshold
-    candidates = OrderedDict()
-    aliaseds = []
-    others = []
-    for a in aliases:
-        score = select(a)  #TODO: compute score in collect() right before Alias(...)?
-        if score > 0:
-            candidates[a] = score  #TODO candidates[a] ?
-            aliaseds.extend(a.aliaseds)
-        else:
-            others.append(a.pivot)
-
-    # Do not waste time if unneccesary
-    if not candidates:
-        return exprs, retained
+    if not aliases:
+        return exprs, aliases
 
     # Project the candidate aliases into exprs to determine what the new
     # working set would be
-    mapper = {k: v for k, v in mapper.items() if v.free_symbols & set(aliaseds)}
+    mapper = {k: v for k, v in mapper.items() if v.free_symbols & set(aliases.aliaseds)}
     templated = [uxreplace(e, mapper) for e in exprs]
 
-    # Pass 2: a set of aliasing expressions is retained only if the tradeoff
-    # between operation count reduction and working set increase is favorable
-    owset = wset(others + templated)
-    for a in aliases:
-        try:
-            score = candidates[a]
-        except KeyError:
-            score = 0
-        if score > 1 or \
-           score == 1 and max(len(wset(a.pivot)), 1) > len(wset(a.pivot) & owset):
-            retained.add(a.pivot, a.aliaseds, a.intervals, a.distances, score)
+    # Filter off the aliases inducing a non favorable tradeoff between operation
+    # count reduction and working set size increase
+    owset = wset(templated)
+    key = lambda a: \
+        a.score > 1 or \
+        a.score == 1 and max(len(wset(a.pivot)), 1) > len(wset(a.pivot) & owset)
+    aliases.filter(key)
 
-    # Do not waste time if unneccesary
-    if not retained:
-        return exprs, retained
+    if not aliases:
+        return exprs, aliases
 
     # Substitute the chosen aliasing sub-expressions
-    mapper = {k: v for k, v in mapper.items() if v.free_symbols & set(retained.aliaseds)}
+    mapper = {k: v for k, v in mapper.items() if v.free_symbols & set(aliases.aliaseds)}
     exprs = [uxreplace(e, mapper) for e in exprs]
 
-    return exprs, retained
+    return exprs, aliases
 
 
 def lower_aliases(aliases, meta, maxpar):
@@ -1197,15 +1186,14 @@ class Alias(object):
     def naliases(self):
         return len(self.aliaseds)
 
-    @cached_property
-    def cost(self):
-        return estimate_cost(self.pivot, True)*self.naliases
-
 
 class AliasList(object):
 
-    def __init__(self):
-        self._list = []
+    def __init__(self, aliases=None):
+        if aliases is None:
+            self._list = []
+        else:
+            self._list = list(aliases._list)
 
     def __repr__(self):
         return self._list.__repr__()
@@ -1223,6 +1211,11 @@ class AliasList(object):
 
     def update(self, aliases):
         self._list.extend(aliases)
+
+    def filter(self, key):
+        for i in list(self._list):
+            if not key(i):
+                self._list.remove(i)
 
     @property
     def aliaseds(self):
