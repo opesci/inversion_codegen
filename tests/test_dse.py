@@ -430,7 +430,7 @@ class TestAliases(object):
         extracted = {i.rhs: i.lhs for i in exprs}
         ispace = exprs[0].ispace
 
-        aliases = collect(extracted, ispace, False)
+        aliases = collect(extracted, ispace, False, lambda i, j: 2)
 
         assert len(aliases) == len(expected)
         assert all(i.pivot in expected for i in aliases)
