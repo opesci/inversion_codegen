@@ -433,7 +433,7 @@ class TestAliases(object):
         aliases = collect(extracted, ispace, False)
 
         assert len(aliases) == len(expected)
-        assert all(i in expected for i in aliases)
+        assert all(i.pivot in expected for i in aliases)
 
     def get_params(self, op, *names):
         ret = []

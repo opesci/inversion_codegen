@@ -102,14 +102,14 @@ class CireTransformer(object):
         self.opt_mincost = options['cire-mincost'][self.optname]
 
     def _aliases_from_clusters(self, clusters, exclude, meta):
-        # [Clusters]_n -> [AliasMapper]_m
+        # [Clusters]_n -> [AliasList]_m
         variants = []
         for g in self._generators:
             exprs = flatten([c.exprs for c in clusters])
 
             extractors = g.generate(exprs, exclude, maxalias=self.opt_maxalias)
 
-            aliases = AliasMapper()
+            aliases = AliasList()
             for extract in extractors:
                 mapper = extract(exprs)
 
@@ -121,13 +121,13 @@ class CireTransformer(object):
             if aliases:
                 variants.append(SpacePoint(aliases, exprs))
 
-        # [AliasMapper]_m -> AliasMapper (s.t. best memory/flops trade-off)
+        # [AliasList]_m -> AliasList (s.t. best memory/flops trade-off)
         try:
             aliases, exprs = pick_best(variants)
         except IndexError:
             return []
 
-        # AliasMapper -> Schedule
+        # AliasList -> Schedule
         schedule = lower_aliases(aliases, meta, self.opt_maxpar)
 
         # Schedule -> Schedule (optimization)
@@ -178,7 +178,7 @@ class CireTransformer(object):
         """
         raise NotImplementedError
 
-    def _cbk_select(self, e, naliases):
+    def _cbk_select(self, alias):
         raise NotImplementedError
 
     def process(self, clusters):
@@ -212,13 +212,12 @@ class CireInvariants(CireTransformer, Queue):
 
         key = lambda c: self._lookup_key(c, d)
         processed = list(clusters)
-        #TODO: SORT AS_MAPPER FOR DETERMINISTIC CODE GEN OR USE ORDEREDDICT
-        #..... ACTUALLY ... use GROUPBY?
         for ak, group in as_mapper(clusters, key=key).items():
             g = []
             for c in group:
                 if c.is_dense and \
-                   not any(i.is_Array for i in c.scope.writes):
+                   not any(i.is_Array for i in c.scope.writes):  #TODO: FIX ME --
+                                                                 #fatd + exclude.add(prefix)??
                     g.append(c)
 
             made = self._aliases_from_clusters(g, exclude, ak)
@@ -240,14 +239,13 @@ class CireInvariants(CireTransformer, Queue):
         properties = frozendict({d: relax_properties(v) for d, v in c.properties.items()})
         return AliasKey(ispace, dintervals, c.dtype, None, properties)
 
-    def _cbk_select(self, e, naliases):
-        if e.is_Function or any(not i.function.is_Symbol for i in e.free_symbols):
-            #TODO: IMPROVE ME
-            mincost = self.opt_mincost['tensor']
-        else:
+    def _cbk_select(self, alias):
+        if alias.is_scalar:
             # E.g., `dt**(-2)`
             mincost = self.opt_mincost['scalar']
-        return estimate_cost(e, True)*naliases // mincost
+        else:
+            mincost = self.opt_mincost['tensor']
+        return alias.cost // mincost
 
 
 class CireSops(CireTransformer):
@@ -285,11 +283,11 @@ class CireSops(CireTransformer):
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
 
-    def _cbk_select(self, e, naliases):
-        if naliases <= 1:
+    def _cbk_select(self, alias):
+        if alias.naliases <= 1:
             return 0
         else:
-            return estimate_cost(e, True)*naliases // self.opt_mincost
+            return alias.cost // self.opt_mincost
 
 
 modes = {
@@ -526,7 +524,7 @@ def collect(extracted, ispace, minstorage):
             k = group.dimensions
         mapper.setdefault(k, []).append(group)
 
-    aliases = AliasMapper()
+    aliases = AliasList()
     queue = list(mapper.values())
     while queue:
         groups = queue.pop(0)
@@ -586,7 +584,7 @@ def collect(extracted, ispace, minstorage):
                        for v in c.offsets]
             subs = {i: i.function[[l + v.fromlabel(l, 0) for l in b]]
                     for i, b, v in zip(c.indexeds, c.bases, offsets)}
-            alias = uxreplace(c.expr, subs)
+            pivot = uxreplace(c.expr, subs)
 
             # All aliased expressions
             aliaseds = [extracted[i.expr] for i in g]
@@ -598,7 +596,7 @@ def collect(extracted, ispace, minstorage):
                 distance = [(d, set(v)) for d, v in LabeledVector.transpose(*distance)]
                 distances.append(LabeledVector([(d, v.pop()) for d, v in distance]))
 
-            aliases.add(alias, list(mapper), aliaseds, distances)
+            aliases.add(pivot, aliaseds, list(mapper), distances)
 
     return aliases
 
@@ -609,20 +607,20 @@ def choose(aliases, exprs, mapper, select):
     the aliases with a bad memory/flops trade-off, inject them into the original
     expressions.
     """
-    retained = AliasMapper()
+    retained = AliasList()
 
     # Pass 1: a set of aliasing expressions is retained only if its cost
     # exceeds the mode's threshold
     candidates = OrderedDict()
     aliaseds = []
     others = []
-    for e, v in aliases.items():
-        score = select(e, len(v.aliaseds))
+    for a in aliases:
+        score = select(a)  #TODO: compute score in collect() right before Alias(...)?
         if score > 0:
-            candidates[e] = score
-            aliaseds.extend(v.aliaseds)
+            candidates[a] = score  #TODO candidates[a] ?
+            aliaseds.extend(a.aliaseds)
         else:
-            others.append(e)
+            others.append(a.pivot)
 
     # Do not waste time if unneccesary
     if not candidates:
@@ -636,14 +634,14 @@ def choose(aliases, exprs, mapper, select):
     # Pass 2: a set of aliasing expressions is retained only if the tradeoff
     # between operation count reduction and working set increase is favorable
     owset = wset(others + templated)
-    for e, v in aliases.items():
+    for a in aliases:
         try:
-            score = candidates[e]
+            score = candidates[a]
         except KeyError:
             score = 0
         if score > 1 or \
-           score == 1 and max(len(wset(e)), 1) > len(wset(e) & owset):
-            retained.addv(e, v, score)
+           score == 1 and max(len(wset(a.pivot)), 1) > len(wset(a.pivot) & owset):
+            retained.add(a.pivot, a.aliaseds, a.intervals, a.distances, score)
 
     # Do not waste time if unneccesary
     if not retained:
@@ -658,26 +656,26 @@ def choose(aliases, exprs, mapper, select):
 
 def lower_aliases(aliases, meta, maxpar):
     """
-    Create a Schedule from an AliasMapper.
+    Create a Schedule from an AliasList.
     """
     dmapper = {}
     processed = []
-    for alias, v in aliases.items():
-        imapper = {**{i.dim: i for i in v.intervals},
-                   **{i.dim.parent: i for i in v.intervals if i.dim.is_NonlinearDerived}}
+    for a in aliases:
+        imapper = {**{i.dim: i for i in a.intervals},
+                   **{i.dim.parent: i for i in a.intervals if i.dim.is_NonlinearDerived}}
 
         intervals = []
         writeto = []
         sub_iterators = {}
-        indicess = [[] for _ in v.distances]
+        indicess = [[] for _ in a.distances]
         for i in meta.ispace.intervals:
             try:
                 interval = imapper[i.dim]
             except KeyError:
-                if i.dim in alias.free_symbols:
-                    # Special case: the Dimension appears within `alias` but not
-                    # as an Indexed index. Then, it needs to be addeed to the
-                    # `writeto` region too
+                if i.dim in a.free_symbols:
+                    # Special case: the Dimension appears within the alias but
+                    # not as an Indexed index. Then, it needs to be addeed to
+                    # the `writeto` region too
                     interval = i
                 else:
                     # E.g., `x0_blk0` or (`a[y_m+1]` => `y not in imapper`)
@@ -731,7 +729,7 @@ def lower_aliases(aliases, meta, maxpar):
                 d = i.dim
 
             # Given the iteration `interval`, lower distances to indices
-            for distance, indices in zip(v.distances, indicess):
+            for distance, indices in zip(a.distances, indicess):
                 try:
                     indices.append(d - interval.lower + distance[interval.dim])
                 except TypeError:
@@ -746,7 +744,7 @@ def lower_aliases(aliases, meta, maxpar):
                                 meta.ispace.directions)
         ispace = ispace.augment(sub_iterators)
 
-        processed.append(ScheduledAlias(alias, writeto, ispace, v.aliaseds, indicess))
+        processed.append(ScheduledAlias(a.pivot, writeto, ispace, a.aliaseds, indicess))
 
     # The [ScheduledAliases] must be ordered so as to reuse as many of the
     # `ispace`'s IterationIntervals as possible in order to honor the
@@ -813,7 +811,7 @@ def optimize_schedule_rotations(schedule, sregistry):
             writeto = IterationSpace(intervals, sub_iterators)
 
             # Transform `alias` by adding `i`
-            alias = i.alias.xreplace({d: d + cd})
+            pivot = i.pivot.xreplace({d: d + cd})
 
             # Extend `ispace` to iterate over rotations
             d1 = writeto[ridx+1].dim  # Note: we're by construction in-bounds here
@@ -823,7 +821,7 @@ def optimize_schedule_rotations(schedule, sregistry):
             aispace = aispace.augment({d: mds + [ii]})
             ispace = IterationSpace.union(rispace, aispace)
 
-            processed.append(ScheduledAlias(alias, writeto, ispace, i.aliaseds, indicess))
+            processed.append(ScheduledAlias(pivot, writeto, ispace, i.aliaseds, indicess))
 
         # Update the rotations mapper
         rmapper[d].extend(list(mapper.values()))
@@ -846,7 +844,7 @@ def optimize_schedule_padding(schedule, meta, platform):
                 ispace = i.ispace.add(Interval(it.dim, 0, it.interval.size % vl))
             else:
                 ispace = i.ispace
-            processed.append(ScheduledAlias(i.alias, i.writeto, ispace, i.aliaseds,
+            processed.append(ScheduledAlias(i.pivot, i.writeto, ispace, i.aliaseds,
                                             i.indicess))
         except (TypeError, KeyError):
             processed.append(i)
@@ -866,7 +864,7 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
 
     clusters = []
     subs = {}
-    for alias, writeto, ispace, aliaseds, indicess in schedule:
+    for pivot, writeto, ispace, aliaseds, indicess in schedule:
         name = sregistry.make_name()
         dtype = meta.dtype
 
@@ -900,7 +898,7 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
                     indices.append(i.dim - i.lower)
 
             obj = make(name=name, dimensions=dimensions, halo=halo, dtype=dtype)
-            expression = Eq(obj[indices], alias)
+            expression = Eq(obj[indices], pivot)
 
             callback = lambda idx: obj[idx]
         else:
@@ -908,7 +906,7 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
             assert writeto.size == 0
 
             obj = Scalar(name=name, dtype=dtype)
-            expression = Eq(obj, alias)
+            expression = Eq(obj, pivot)
 
             callback = lambda idx: obj
 
@@ -916,7 +914,7 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
         subs.update({aliased: callback(indices)
                      for aliased, indices in zip(aliaseds, indicess)})
 
-        # Construct the `alias` DataSpace
+        # Construct the alias DataSpace
         accesses = detect_accesses(expression)
         parts = {k: IntervalGroup(build_intervals(v)).add(ispace.intervals).relaxed
                  for k, v in accesses.items() if k}
@@ -930,7 +928,7 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
             elif d not in writeto.dimensions:
                 properties[d] = normalize_properties(v, {PARALLEL_IF_PVT})
 
-        # Finally, build the `alias` Cluster
+        # Finally, build the alias Cluster
         clusters.append(Cluster(expression, ispace, dspace, meta.guards, properties))
 
     return clusters, subs
@@ -1168,12 +1166,72 @@ class Group(tuple):
 
 
 AliasKey = namedtuple('AliasKey', 'ispace dintervals dtype guards properties')
-AliasedGroup = namedtuple('AliasedGroup', 'intervals aliaseds distances score')
 
-ScheduledAlias = namedtuple('ScheduledAlias', 'alias writeto ispace aliaseds indicess')
+ScheduledAlias = namedtuple('ScheduledAlias', 'pivot writeto ispace aliaseds indicess')
 ScheduledAlias.__new__.__defaults__ = (None,) * len(ScheduledAlias._fields)
 
 SpacePoint = namedtuple('SpacePoint', 'aliases exprs')
+
+
+class Alias(object):
+
+    def __init__(self, pivot, aliaseds, intervals, distances, score=0):
+        self.pivot = pivot
+        self.aliaseds = aliaseds
+        self.intervals = intervals
+        self.distances = distances
+        self.score = score
+
+    def __repr__(self):
+        return "Alias<<%s>>" % self.pivot
+
+    @property
+    def free_symbols(self):
+        return self.pivot.free_symbols
+
+    @property
+    def is_scalar(self):
+        return not any(i.is_Dimension for i in self.free_symbols)
+
+    @property
+    def naliases(self):
+        return len(self.aliaseds)
+
+    @cached_property
+    def cost(self):
+        return estimate_cost(self.pivot, True)*self.naliases
+
+
+class AliasList(object):
+
+    def __init__(self):
+        self._list = []
+
+    def __repr__(self):
+        return self._list.__repr__()
+
+    def __len__(self):
+        return self._list.__len__()
+
+    def __iter__(self):
+        for i in self._list:
+            yield i
+
+    def add(self, pivot, aliaseds, intervals, distances, score=0):
+        assert len(aliaseds) == len(distances)
+        self._list.append(Alias(pivot, aliaseds, intervals, distances, score))
+
+    def update(self, aliases):
+        self._list.extend(aliases)
+
+    @property
+    def aliaseds(self):
+        return flatten(i.aliaseds for i in self._list)
+
+    @property
+    def score(self):
+        # The score is a 2-tuple <flop-reduction-score, workin-set-score>
+        return (sum(i.score for i in self._list), len(self))
 
 
 class Schedule(tuple):
@@ -1183,26 +1241,6 @@ class Schedule(tuple):
         obj.dmapper = dmapper or {}
         obj.rmapper = rmapper or {}
         return obj
-
-
-class AliasMapper(OrderedDict):
-
-    def add(self, alias, intervals, aliaseds, distances):
-        assert len(aliaseds) == len(distances)
-        self[alias] = AliasedGroup(intervals, aliaseds, distances, 0)
-
-    def addv(self, alias, ag, score):
-        assert alias not in self
-        self[alias] = AliasedGroup(ag.intervals, ag.aliaseds, ag.distances, score)
-
-    @property
-    def aliaseds(self):
-        return flatten(i.aliaseds for i in self.values())
-
-    @property
-    def score(self):
-        # The score is a 2-tuple <flop-reduction-score, workin-set-score>
-        return (sum(i.score for i in self.values()), len(self))
 
 
 def make_rotations_table(d, v):
