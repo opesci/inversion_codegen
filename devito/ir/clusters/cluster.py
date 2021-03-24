@@ -164,7 +164,7 @@ class Cluster(object):
         example, reduction or redundant (i.e., invariant) Dimensions won't
         appear in an expression.
         """
-        return set().union(*[i._defines for i in self.free_symbols if i.is_Dimension])
+        return {i for i in self.free_symbols if i.is_Dimension}
 
     @cached_property
     def scope(self):
