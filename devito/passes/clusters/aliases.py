@@ -1224,7 +1224,9 @@ class AliasList(object):
     @property
     def score(self):
         # The score is a 2-tuple <flop-reduction-score, workin-set-score>
-        return (sum(i.score for i in self._list), len(self))
+        flop_score = sum(i.score for i in self._list)
+        ws_score = len([i for i in self if not i.is_scalar])
+        return flop_score, ws_score
 
 
 class Schedule(tuple):
