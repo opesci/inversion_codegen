@@ -67,11 +67,6 @@ class DiscreteFunction(AbstractFunction, ArgProvider, Differentiable):
         # There may or may not be a `Grid` attached to the DiscreteFunction
         self._grid = kwargs.get('grid')
 
-        # Symbolic (finite difference) coefficients
-        self._coefficients = kwargs.get('coefficients', 'standard')
-        if self._coefficients not in ('standard', 'symbolic'):
-            raise ValueError("coefficients must be `standard` or `symbolic`")
-
         # Data-related properties and data initialization
         self._data = None
         self._first_touch = kwargs.get('first_touch', configuration['first-touch'])
@@ -195,19 +190,6 @@ class DiscreteFunction(AbstractFunction, ArgProvider, Differentiable):
     @property
     def staggered(self):
         return self._staggered
-
-    @property
-    def coefficients(self):
-        """Form of the coefficients of the function."""
-        return self._coefficients
-
-    @cached_property
-    def _coeff_symbol(self):
-        if self.coefficients == 'symbolic':
-            return sympy.Function('W')
-        else:
-            raise ValueError("Function was not declared with symbolic "
-                             "coefficients.")
 
     @cached_property
     def shape(self):

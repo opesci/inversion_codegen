@@ -1,9 +1,9 @@
 from sympy import sympify
 
 from devito.finite_differences.differentiable import Add
-from devito.finite_differences.tools import (numeric_weights, symbolic_weights, left,
+from devito.finite_differences.tools import (numeric_weights, left,
                                              right, generate_indices, centered, direct,
-                                             transpose, check_input, check_symbolic)
+                                             transpose, check_input)
 
 __all__ = ['first_derivative', 'second_derivative', 'cross_derivative',
            'generic_derivative', 'left', 'right', 'centered', 'transpose',
@@ -15,9 +15,8 @@ _PRECISION = 9
 
 
 @check_input
-@check_symbolic
 def first_derivative(expr, dim, fd_order=None, side=centered, matvec=direct,
-                     symbolic=False, x0=None):
+                     x0=None, coeffs=None):
     """
     First-order derivative of a given expression.
 
@@ -38,6 +37,8 @@ def first_derivative(expr, dim, fd_order=None, side=centered, matvec=direct,
         finite difference. Defaults to ``direct``.
     x0 : dict, optional
         Origin of the finite-difference scheme as a map dim: origin_dim.
+    coeffs : iterable or Function, optional
+        Set of custom finite-difference weights.
 
     Returns
     -------
@@ -88,8 +89,9 @@ def first_derivative(expr, dim, fd_order=None, side=centered, matvec=direct,
     ind = generate_indices(expr, dim, order, side=side, x0=x0)[0]
 
     # Finite difference weights from Taylor approximation with these positions
-    if symbolic:
-        c = symbolic_weights(expr, 1, ind, dim)
+    # NOTE: fix up - add function case
+    if coeffs:
+        c = list(coeffs)
     else:
         c = numeric_weights(1, ind, dim)
 
@@ -97,7 +99,6 @@ def first_derivative(expr, dim, fd_order=None, side=centered, matvec=direct,
 
 
 @check_input
-@check_symbolic
 def second_derivative(expr, dim, fd_order, **kwargs):
     """
     Second-order derivative of a given expression.
@@ -115,6 +116,8 @@ def second_derivative(expr, dim, fd_order, **kwargs):
         Shift of the finite-difference approximation.
     x0 : dict, optional
         Origin of the finite-difference scheme as a map dim: origin_dim.
+    coeffs : iterable or Function, optional
+        Set of custom finite-difference weights.
 
     Returns
     -------
@@ -154,7 +157,6 @@ def second_derivative(expr, dim, fd_order, **kwargs):
 
 
 @check_input
-@check_symbolic
 def cross_derivative(expr, dims, fd_order, deriv_order, **kwargs):
     """
     Arbitrary-order cross derivative of a given expression.
@@ -174,6 +176,8 @@ def cross_derivative(expr, dims, fd_order, deriv_order, **kwargs):
         Shift of the finite-difference approximation.
     x0 : dict, optional
         Origin of the finite-difference scheme as a map dim: origin_dim.
+    coeffs : iterable or Function, optional
+        Set of custom finite-difference weights.
 
     Returns
     -------
@@ -212,15 +216,15 @@ def cross_derivative(expr, dims, fd_order, deriv_order, **kwargs):
     """
     x0 = kwargs.get('x0', {})
     for d, fd, dim in zip(deriv_order, fd_order, dims):
-        expr = generic_derivative(expr, dim=dim, fd_order=fd, deriv_order=d, x0=x0)
+        expr = generic_derivative(expr, dim=dim, fd_order=fd, deriv_order=d, x0=x0,
+                                  coeffs=coeffs)
 
     return expr
 
 
 @check_input
-@check_symbolic
-def generic_derivative(expr, dim, fd_order, deriv_order, symbolic=False,
-                       matvec=direct, x0=None):
+def generic_derivative(expr, dim, fd_order, deriv_order,
+                       matvec=direct, x0=None, coeffs=None):
     """
     Arbitrary-order derivative of a given expression.
 
@@ -239,6 +243,8 @@ def generic_derivative(expr, dim, fd_order, deriv_order, symbolic=False,
         Shift of the finite-difference approximation.
     x0 : dict, optional
         Origin of the finite-difference scheme as a map dim: origin_dim.
+    coeffs : iterable or Function, optional
+        Set of custom finite-difference weights.
 
     Returns
     -------
@@ -247,14 +253,16 @@ def generic_derivative(expr, dim, fd_order, deriv_order, symbolic=False,
     """
     # First order derivative with 2nd order FD is highly non-recommended so taking
     # first order fd that is a lot better
-    if deriv_order == 1 and fd_order == 2 and not symbolic:
+    if deriv_order == 1 and fd_order == 2 and not coeffs:
         fd_order = 1
     # Stencil positions
     indices, x0 = generate_indices(expr, dim, fd_order, x0=x0)
 
     # Finite difference weights from Taylor approximation with these positions
-    if symbolic:
-        c = symbolic_weights(expr, deriv_order, indices, x0)
+    # NOTE: Fix me. Add function case
+    # TODO: Add coeffs sanity check. Create decotrator for this
+    if coeffs:
+        c = list(coeffs)
     else:
         c = numeric_weights(deriv_order, indices, x0)
 

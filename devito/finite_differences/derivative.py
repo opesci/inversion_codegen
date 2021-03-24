@@ -43,6 +43,8 @@ class Derivative(sympy.Derivative, Differentiable):
     x0 : dict, optional
         Origin (where the finite-difference is evaluated at) for the finite-difference
         scheme, e.g. {x: x, y: y + h_y/2}.
+    coeffs : iterable or Function, optional
+        Set of custom finite-difference weights.
 
     Examples
     --------
@@ -84,7 +86,7 @@ class Derivative(sympy.Derivative, Differentiable):
     evaluation are `x0`, `fd_order` and `side`.
     """
 
-    _state = ('expr', 'dims', 'side', 'fd_order', 'transpose', '_subs', 'x0')
+    _state = ('expr', 'dims', 'side', 'fd_order', 'transpose', '_subs', 'x0', 'coeffs')
     _fd_priority = 3
 
     def __new__(cls, expr, *dims, **kwargs):
@@ -107,6 +109,7 @@ class Derivative(sympy.Derivative, Differentiable):
         obj._transpose = kwargs.get("transpose", direct)
         obj._subs = as_tuple(frozendict(i) for i in kwargs.get("subs", []))
         obj._x0 = frozendict(kwargs.get('x0', {}))
+        obj._coeffs = kwargs.get('coeffs', None)
         return obj
 
     @classmethod
@@ -171,18 +174,21 @@ class Derivative(sympy.Derivative, Differentiable):
                           for s in filter_ordered(new_dims)]
         return new_dims, orders, fd_orders, variable_count
 
-    def __call__(self, x0=None, fd_order=None, side=None):
+    def __call__(self, x0=None, coeffs=None, fd_order=None, side=None):
         if self.ndims == 1:
             _fd_order = fd_order or self._fd_order
             _side = side or self._side
             new_x0 = {self.dims[0]: x0} if x0 is not None else self.x0
-            return self._new_from_self(fd_order=_fd_order, side=_side, x0=new_x0)
+            new_coeffs = coeffs
+            return self._new_from_self(fd_order=_fd_order, side=_side, x0=new_x0,
+                                       coeffs=new_coeffs)
 
         if side is not None:
             raise TypeError("Side only supported for first order single"
                             "Dimension derivative such as `.dxl` or .dx(side=left)")
         # Cross derivative
         _x0 = dict(self._x0)
+        _coeffs = coeffs
         _fd_order = dict(self.fd_order._getters)
         try:
             _fd_order.update(**(fd_order or {}))
@@ -192,12 +198,12 @@ class Derivative(sympy.Derivative, Differentiable):
         except AttributeError:
             raise TypeError("Multi-dimensional Derivative, input expected as a dict")
 
-        return self._new_from_self(fd_order=_fd_order, x0=_x0)
+        return self._new_from_self(fd_order=_fd_order, x0=_x0, coeffs=_coeffs)
 
     def _new_from_self(self, **kwargs):
         _kwargs = {'deriv_order': self.deriv_order, 'fd_order': self.fd_order,
                    'side': self.side, 'transpose': self.transpose, 'subs': self._subs,
-                   'x0': self.x0, 'preprocessed': True}
+                   'x0': self.x0, 'coeffs': self.coeffs, 'preprocessed': True}
         expr = kwargs.pop('expr', self.expr)
         _kwargs.update(**kwargs)
         return Derivative(expr, *self.dims, **_kwargs)
@@ -249,6 +255,10 @@ class Derivative(sympy.Derivative, Differentiable):
     @property
     def deriv_order(self):
         return self._deriv_order
+
+    @property
+    def coeffs(self):
+        return self._coeffs
 
     @property
     def side(self):
@@ -340,13 +350,13 @@ class Derivative(sympy.Derivative, Differentiable):
         if self.side is not None and self.deriv_order == 1:
             res = first_derivative(expr, self.dims[0], self.fd_order,
                                    side=self.side, matvec=self.transpose,
-                                   x0=self.x0)
+                                   x0=self.x0, coeffs=self.coeffs)
         elif len(self.dims) > 1:
             res = cross_derivative(expr, self.dims, self.fd_order, self.deriv_order,
-                                   matvec=self.transpose, x0=self.x0)
+                                   matvec=self.transpose, x0=self.x0, coeffs=self.coeffs)
         else:
             res = generic_derivative(expr, *self.dims, self.fd_order, self.deriv_order,
-                                     matvec=self.transpose, x0=self.x0)
+                                     matvec=self.transpose, x0=self.x0, coeffs=self.coeffs)
 
         # Step 3: Evaluate remaining part of expression
         res = res.evaluate
