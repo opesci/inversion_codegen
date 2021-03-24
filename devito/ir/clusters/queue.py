@@ -70,7 +70,7 @@ class Queue(object):
                 processed.extend(list(g))
             else:
                 # Apply callback
-                _clusters = self.callback(list(g), pfx)
+                _clusters = self.callback(list(g), pfx, **kwargs)
                 # Recursion
                 processed.extend(self._process_fatd(_clusters, level + 1, **kwargs))
 
