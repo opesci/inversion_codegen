@@ -1,5 +1,5 @@
 from collections import Counter
-from itertools import groupby
+from itertools import groupby, product
 
 from devito.ir.clusters import Cluster, ClusterGroup, Queue
 from devito.ir.support import TILABLE, Scope
@@ -43,7 +43,7 @@ class Lift(Queue):
                 continue
 
             # Is `c` a real candidate -- is there at least one invariant Dimension?
-            if c.used_dimensions & hope_invariant:
+            if any(d._defines & hope_invariant for d in c.used_dimensions):
                 processed.append(c)
                 continue
 
@@ -53,11 +53,6 @@ class Lift(Queue):
             if any(c.functions & set(i.scope.writes) for i in impacted):
                 processed.append(c)
                 continue
-
-            # The contracted iteration and data spaces
-            key = lambda d: d not in hope_invariant
-            ispace = c.ispace.project(key).reset()
-            dspace = c.dspace.project(key).reset()
 
             # All of the inner Dimensions must appear in the write-to region
             # otherwise we would violate data dependencies. Consider
@@ -70,12 +65,17 @@ class Lift(Queue):
             #
             # In 1) and 2) lifting is infeasible; in 3) the statement can be lifted
             # outside the `i` loop as `r`'s write-to region contains both `x` and `y`
-            crossed = {d for d in c.used_dimensions if d not in outer}
-            if not all(crossed <= set(i.dimensions) for i in c.scope.writes):
+            xed = {d._defines for d in c.used_dimensions if d not in outer}
+            if not all(i & set(w.dimensions) for i, w in product(xed, c.scope.writes)):
                 processed.append(c)
                 continue
 
-            # Some properties need to be dropped
+            # The contracted iteration and data spaces
+            key = lambda d: d not in hope_invariant
+            ispace = c.ispace.project(key).reset()
+            dspace = c.dspace.project(key).reset()
+
+            # Some properties are dropped
             properties = {d: v for d, v in c.properties.items() if key(d)}
             properties = {d: v - {TILABLE} for d, v in properties.items()}
 
