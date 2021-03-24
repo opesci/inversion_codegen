@@ -1355,7 +1355,6 @@ class TestAliases(object):
         """
         grid = Grid(shape=(10, 10))
         _, y = grid.dimensions
-        time = grid.time_dim
 
         u = TimeFunction(name="u", grid=grid, time_order=2, space_order=8)
 
