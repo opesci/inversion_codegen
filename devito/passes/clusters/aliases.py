@@ -5,10 +5,11 @@ from itertools import groupby
 from cached_property import cached_property
 import numpy as np
 
-from devito.ir import (SEQUENTIAL, PARALLEL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
-                       Forward, IterationInstance, IterationSpace, Interval, Cluster,
-                       Queue, IntervalGroup, LabeledVector, detect_accesses,
-                       build_intervals, normalize_properties, relax_properties)
+from devito.ir import (SEQUENTIAL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
+                       Forward, IterationInstance, IterationSpace, Interval,
+                       Cluster, Queue, IntervalGroup, LabeledVector,
+                       detect_accesses, build_intervals, normalize_properties,
+                       relax_properties)
 from devito.passes.clusters.utils import timed_pass
 from devito.symbolics import (Uxmapper, compare_ops, estimate_cost, q_constant,
                               q_leaf, retrieve_indexed, search, uxreplace)
@@ -201,9 +202,9 @@ class CireInvariants(CireTransformer, Queue):
         self.opt_maxalias = False
 
     def process(self, clusters):
-        return self._process_fdta(clusters, 1)
+        return self._process_fatd(clusters, 1, xtracted=[])
 
-    def callback(self, clusters, prefix):
+    def callback(self, clusters, prefix, xtracted=None):
         if not prefix:
             return clusters
         d = prefix[-1].dim
@@ -218,12 +219,7 @@ class CireInvariants(CireTransformer, Queue):
         key = lambda c: self._lookup_key(c, d)
         processed = list(clusters)
         for ak, group in as_mapper(clusters, key=key).items():
-            g = []
-            for c in group:
-                if c.is_dense and \
-                   not any(i.is_Array for i in c.scope.writes):  #TODO: FIX ME --
-                                                                 #fatd + exclude.add(prefix)??
-                    g.append(c)
+            g = [c for c in group if c.is_dense and c not in xtracted]
 
             made = self._aliases_from_clusters(g, exclude, ak)
 
@@ -231,6 +227,8 @@ class CireInvariants(CireTransformer, Queue):
                 for n, c in enumerate(g, -len(g)):
                     processed[processed.index(c)] = made.pop(n)
                 processed = made + processed
+
+                xtracted.extend(made)
 
         return processed
 
@@ -379,8 +377,10 @@ class GeneratorDerivatives(Generator):
         #   add(mul, mul, ...) -> stems from first order derivative
         #   add(mul(add(mul, mul, ...), ...), ...) -> stems from second order derivative
         #   ...
-        nadds = lambda e: (int(e.is_Add) +
-                           max([nadds(a) for a in e.args], default=0) if not q_leaf(e) else 0)
+        nadds = lambda e: (
+            int(e.is_Add) +
+            max([nadds(a) for a in e.args], default=0) if not q_leaf(e) else 0
+        )
         return max([nadds(e) for e in exprs], default=0)
 
     @classmethod
