@@ -1353,23 +1353,26 @@ class TestAliases(object):
         Similar to test_space_invariant, but now the invariance is only w.r.t.
         one of the inner space dimensions.
         """
-        grid = Grid(shape=(10, 10))
-        _, y = grid.dimensions
+        grid = Grid(shape=(10, 10, 10))
+        x, y, z = grid.dimensions
+        grid2 = Grid(shape=(10, 10), dimensions=(x, y))
 
-        u = TimeFunction(name="u", grid=grid, time_order=2, space_order=8)
+        u1 = TimeFunction(name="u", grid=grid, time_order=2, space_order=8)
+        u2 = TimeFunction(name="u", grid=grid2, time_order=2, space_order=8)
 
-        eq = Eq(u.forward, u*sin(y + y.symbolic_max))
+        for u in [u1, u2]:
+            eq = Eq(u.forward, u*sin(y + y.symbolic_max))
 
-        op = Operator(eq)
+            op = Operator(eq)
 
-        # Check code generation
-        ys = self.get_params(op, 'y_size')[0]
-        arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
-        assert len(arrays) == 1
-        self.check_array(arrays[0], ((0, 0),), (ys,))
-        trees = retrieve_iteration_tree(op)
-        assert len(trees) == 2
-        assert trees[0].root.dim is y
+            # Check code generation
+            ys = self.get_params(op, 'y_size')[0]
+            arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
+            assert len(arrays) == 1
+            self.check_array(arrays[0], ((0, 0),), (ys,))
+            trees = retrieve_iteration_tree(op)
+            assert len(trees) == 2
+            assert trees[0].root.dim is y
 
     def test_catch_duplicate_from_different_clusters(self):
         """
