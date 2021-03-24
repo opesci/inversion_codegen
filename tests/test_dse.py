@@ -1353,12 +1353,12 @@ class TestAliases(object):
         Similar to test_space_invariant, but now the invariance is only w.r.t.
         one of the inner space dimensions.
         """
-        grid = Grid(shape=(10, 10, 10))
-        x, y, z = grid.dimensions
+        grid1 = Grid(shape=(10, 10, 10))
+        x, y, z = grid1.dimensions
         grid2 = Grid(shape=(10, 10), dimensions=(x, y))
 
-        u1 = TimeFunction(name="u", grid=grid, time_order=2, space_order=8)
-        u2 = TimeFunction(name="u", grid=grid2, time_order=2, space_order=8)
+        u1 = TimeFunction(name="u", grid=grid1)
+        u2 = TimeFunction(name="u", grid=grid2)
 
         for u in [u1, u2]:
             eq = Eq(u.forward, u*sin(y + y.symbolic_max))
@@ -1373,6 +1373,51 @@ class TestAliases(object):
             trees = retrieve_iteration_tree(op)
             assert len(trees) == 2
             assert trees[0].root.dim is y
+
+    def test_space_invariant_v3(self):
+        """
+        Similar to test_space_invariant, but now with many invariants along
+        different subsets of space dimensions.
+        """
+        grid = Grid(shape=(10, 10, 10))
+        x, y, z = grid.dimensions
+
+        f = Function(name='f', grid=grid)
+
+        eq = Eq(f, f + cos(x*y*z) + cos(x*y)*cos(y) + sin(x)*cos(x*z))
+
+        op = Operator(eq)
+
+        xs, ys, zs = self.get_params(op, 'x_size', 'y_size', 'z_size')
+        arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
+        assert len(arrays) == 3
+        self.check_array(arrays[0], ((0, 0),), (ys,))
+        self.check_array(arrays[1], ((0, 0), (0, 0)), (xs, zs))
+        self.check_array(arrays[2], ((0, 0), (0, 0)), (xs, ys))
+
+    def test_space_invariant_v4(self):
+        """
+        Similar to test_space_invariant, stems from viscoacoustic -- a portion
+        of a space derivative that would be redundantly computed in two separated
+        loop nests is recognised to be a time invariant and factored into a common
+        temporary.
+        """
+        grid = Grid(shape=(10, 10, 10))
+
+        f = Function(name='f', grid=grid)
+        u = TimeFunction(name='u', grid=grid)
+        v = TimeFunction(name='v', grid=grid)
+
+        eqns = [Eq(u.forward, (u*cos(f)).dx + v),
+                Eq(v.forward, (v*cos(f)).dy + u)]
+
+        op = Operator(eqns)
+
+        xs, ys, zs = self.get_params(op, 'x_size', 'y_size', 'z_size')
+        arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
+        assert len(arrays) == 1
+        self.check_array(arrays[0], ((0, 1), (0, 1), (0, 0)), (xs+1, ys+1, zs))
+        assert op._profiler._sections['section1'].sops == 12
 
     def test_catch_duplicate_from_different_clusters(self):
         """
