@@ -1108,7 +1108,7 @@ class TestAliases(object):
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
-        assert sum(i.ops for i in summary1.values()) == 73
+        assert sum(i.ops for i in summary1.values()) == 76
         assert sum(i.ops for i in summary2.values()) == 60
 
     @pytest.mark.parametrize('rotate', [False, True])
@@ -1489,7 +1489,7 @@ class TestAliases(object):
 
         op = Operator(eq, opt=('advanced', {'openmp': False}))
         assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 0
-        assert op._profiler._sections['section0'].sops == 40
+        assert op._profiler._sections['section0'].sops == 34
 
         # The Eq implements an OT4 iso-acoustic stencil
         pde = m * u.dt2 - u.laplace - s**2/12 * u.biharmonic(1/m)
@@ -1497,11 +1497,11 @@ class TestAliases(object):
 
         op0 = Operator(eq, opt=('advanced', {'openmp': False}))
         assert len([i for i in FindSymbols().visit(op0) if i.is_Array]) == 2
-        assert op0._profiler._sections['section1'].sops == 109
+        assert op0._profiler._sections['section1'].sops == 97
 
         op1 = Operator(eq, opt=('advanced', {'openmp': False, 'cire-maxalias': True}))
         assert len([i for i in FindSymbols().visit(op1) if i.is_Array]) == 4
-        assert op1._profiler._sections['section1'].sops == 94
+        assert op1._profiler._sections['section1'].sops == 82
 
         op2 = Operator(eq, opt=('advanced', {'openmp': False, 'cire-maxalias': True}),
                        subs={i: 0.5 for i in grid.spacing_symbols})
@@ -1510,8 +1510,7 @@ class TestAliases(object):
 
     def test_hoisting_scalar_divs(self):
         """
-        Test that scalar divisions are hoisted out of the inner loops when
-        generating code for device offloading.
+        Test that scalar divisions are hoisted out of the inner loops.
         """
         grid = Grid(shape=(3, 3))
 
@@ -1521,18 +1520,19 @@ class TestAliases(object):
         pde = m * u.dt2 - u.laplace
         eq = Eq(u.forward, solve(pde, u.forward))
 
+        # Check that different backends behave the same (in older versions
+        # they were generating different code)
         op0 = Operator(eq, opt=('advanced', {'openmp': False}))
         op1 = Operator(eq, platform='nvidiaX', language='openacc')
 
-        for op, ops, nexprs in [(op0, 30, 3), (op1, 26, 5)]:
+        for op, ops, nexprs in [(op0, 26, 5), (op1, 26, 5)]:
             assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 0
             assert op._profiler._sections['section0'].sops == ops
             exprs = FindNodes(Expression).visit(op)
             assert len(exprs) == nexprs
             assert all(e.is_scalar for e in exprs[:-1])
-        assert op0.body[-1].body[0].is_Iteration
-        assert op1.body[-1].body[0].is_ExpressionBundle
-        assert op1.body[-1].body[-1].is_Iteration
+            assert op.body[-1].body[0].is_ExpressionBundle
+            assert op.body[-1].body[-1].is_Iteration
 
     @pytest.mark.parametrize('rotate', [False, True])
     def test_drop_redundants_after_fusion(self, rotate):
