@@ -1204,7 +1204,10 @@ class AliasList(object):
             self._list = list(aliases._list)
 
     def __repr__(self):
-        return self._list.__repr__()
+        if self._list:
+            return "AliasList<\n  %s\n>" % ",\n  ".join(str(i) for i in self._list)
+        else:
+            return "<>"
 
     def __len__(self):
         return self._list.__len__()
