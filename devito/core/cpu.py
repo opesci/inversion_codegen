@@ -24,7 +24,7 @@ class Cpu64OperatorMixin(object):
     3 => "blocks", "sub-blocks", and "sub-sub-blocks", ...
     """
 
-    CIRE_MINCOST_INV = 50
+    CIRE_MINCOST_INV = 10
     """
     Minimum operation count of a Dimension-invariant aliasing expression to be
     optimized away. Dimension-invariant aliases are lifted outside of one or more
@@ -36,6 +36,7 @@ class Cpu64OperatorMixin(object):
     """
     Minimum operation count of a sum-of-product aliasing expression to be optimized away.
     """
+    #TODO: DROP THE MINCOST_*, INTRODUCE SINGLE CIRE_MINCOST ??
 
     PAR_COLLAPSE_NCORES = 4
     """
@@ -91,10 +92,7 @@ class Cpu64OperatorMixin(object):
         o['cire-maxalias'] = oo.pop('cire-maxalias', False)
         o['cire-ftemps'] = oo.pop('cire-ftemps', False)
         o['cire-mincost'] = {
-            'invariants': {
-                'scalar': 1,
-                'tensor': oo.pop('cire-mincost-inv', cls.CIRE_MINCOST_INV),
-            },
+            'invariants': oo.pop('cire-mincost-inv', cls.CIRE_MINCOST_INV),
             'sops': oo.pop('cire-mincost-sops', cls.CIRE_MINCOST_SOPS)
         }
 
