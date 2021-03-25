@@ -180,13 +180,6 @@ class CireTransformer(object):
         """
         raise NotImplementedError
 
-    def _scorer(self, pivot, naliases):
-        """
-        Give an integer score to an alias. The higher the score, the more expensive
-        the alias is.
-        """
-        raise NotImplementedError
-
     def process(self, clusters):
         raise NotImplementedError
 
@@ -242,14 +235,6 @@ class CireInvariants(CireTransformer, Queue):
         properties = frozendict({d: relax_properties(v) for d, v in c.properties.items()})
         return AliasKey(ispace, dintervals, c.dtype, None, properties)
 
-    def _scorer(self, pivot, naliases):
-        if not any(i.is_Dimension for i in pivot.free_symbols):
-            # Made of scalars -- e.g., `dt**(-2)`
-            mincost = self.opt_mincost['scalar']
-        else:
-            mincost = self.opt_mincost['tensor']
-        return estimate_cost(pivot, True)*naliases // mincost
-
 
 class CireSops(CireTransformer):
 
@@ -285,12 +270,6 @@ class CireSops(CireTransformer):
 
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
-
-    def _scorer(self, pivot, naliases):
-        if naliases <= 1:
-            return 0
-        else:
-            return estimate_cost(pivot, True)*naliases // self.opt_mincost
 
 
 modes = {
