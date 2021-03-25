@@ -758,8 +758,14 @@ def optimize_schedule_rotations(schedule, sregistry):
     for k, group in groupby(schedule, key=lambda i: i.writeto):
         g = list(group)
 
-        candidate = k[ridx]
+        try:
+            candidate = k[ridx]
+        except IndexError:
+            # Degenerate alias (a scalar)
+            processed.extend(g)
+            continue
         d = candidate.dim
+
         try:
             ds = schedule.dmapper[d]
         except KeyError:
