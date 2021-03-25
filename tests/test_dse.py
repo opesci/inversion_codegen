@@ -1840,16 +1840,17 @@ class TestAliases(object):
 
     @switchconfig(profiling='advanced')
     @pytest.mark.parametrize('expr,exp_arrays,exp_ops', [
-#        ('f.dx.dx + g.dx.dx',
-#         (1, 1, 2, (0, 1)), (46, 40, 49, 16)),
-#        ('v.dx.dx + p.dx.dx',
-#         (2, 2, 2, (0, 2)), (61, 49, 49, 24)),
-#        ('(v.dx + v.dy).dx - (v.dx + v.dy).dy + 2*f.dx.dx + f*f.dy.dy + f.dx.dx(x0=1)',
-#         (2, 2, 4, (0, 2)), (262, 250, 259, 92)),
-#        ('(g*(1 + f)*v.dx).dx + (2*g*f*v.dx).dx',
-#         (1, 1, 2, (0, 1)), (50, 44, 53, 18)),
-        ('g*(f.dx.dx + g.dx.dx)',
-         (0, 0, 0, (0, 0)), (140, 140, 152, 18)),
+        ('f.dx.dx + g.dx.dx',
+         (1, 1, 2, (0, 1)), (46, 40, 49, 16)),
+        ('v.dx.dx + p.dx.dx',
+         (2, 2, 2, (0, 2)), (61, 49, 49, 24)),
+        ('(v.dx + v.dy).dx - (v.dx + v.dy).dy + 2*f.dx.dx + f*f.dy.dy + f.dx.dx(x0=1)',
+         (2, 2, 4, (0, 2)), (262, 250, 259, 92)),
+        ('(g*(1 + f)*v.dx).dx + (2*g*f*v.dx).dx',
+         (1, 1, 2, (0, 1)), (50, 44, 53, 18)),
+        pytest.param('g*(f.dx.dx + g.dx.dx)', (1, 1, 2, (0, 1)), (47, 41, 50, 18),
+                     marks=pytest.mark.xfail(reason="must catch derivatives, not sops, "
+                                                    "or it will get nr=1 at collect()")),
     ])
     def test_sum_of_nested_derivatives(self, expr, exp_arrays, exp_ops):
         """
@@ -1882,16 +1883,16 @@ class TestAliases(object):
         op4 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-maxalias': True}))
 
         # Check code generation
-#        arrays = [i for i in FindSymbols().visit(op1) if i.is_Array]
-#        assert len(arrays) == exp_arrays[0]
-#        arrays = [i for i in FindSymbols().visit(op2) if i.is_Array]
-#        assert len(arrays) == exp_arrays[1]
-#        arrays = [i for i in FindSymbols().visit(op3) if i.is_Array]
-#        assert len(arrays) == exp_arrays[2]
-#        arrays = [i for i in FindSymbols().visit(op4._func_table['bf0']) if i.is_Array]
-#        exp_inv, exp_sops = exp_arrays[3]
-#        assert len(arrays) == exp_inv + exp_sops
-#        assert len(FindNodes(VExpanded).visit(op4._func_table['bf0'])) == exp_sops
+        arrays = [i for i in FindSymbols().visit(op1) if i.is_Array]
+        assert len(arrays) == exp_arrays[0]
+        arrays = [i for i in FindSymbols().visit(op2) if i.is_Array]
+        assert len(arrays) == exp_arrays[1]
+        arrays = [i for i in FindSymbols().visit(op3) if i.is_Array]
+        assert len(arrays) == exp_arrays[2]
+        arrays = [i for i in FindSymbols().visit(op4._func_table['bf0']) if i.is_Array]
+        exp_inv, exp_sops = exp_arrays[3]
+        assert len(arrays) == exp_inv + exp_sops
+        assert len(FindNodes(VExpanded).visit(op4._func_table['bf0'])) == exp_sops
 
         # Check numerical output
         op0(time_M=20)
