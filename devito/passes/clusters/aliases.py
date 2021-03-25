@@ -113,9 +113,9 @@ class CireTransformer(object):
             aliases = AliasList()
             for extract in extractors:
                 mapper = extract(exprs)
-                extracted = mapper.extracted
 
-                found = collect(extracted, meta.ispace, self.opt_minstorage, self._scorer)
+                found = collect(mapper.extracted, meta.ispace,
+                                self.opt_minstorage, self.opt_mincost)
 
                 exprs, chosen = choose(found, exprs, mapper)
                 aliases.update(chosen)
@@ -434,7 +434,7 @@ class GeneratorDerivatives(Generator):
             yield lambda i: cls._uxmap_derivatives(i, exclude, maxalias, make, n)
 
 
-def collect(extracted, ispace, minstorage, scorer):
+def collect(extracted, ispace, minstorage, mincost):
     """
     Find groups of aliasing expressions.
 
@@ -601,8 +601,14 @@ def collect(extracted, ispace, minstorage, scorer):
                 distance = [(d, set(v)) for d, v in LabeledVector.transpose(*distance)]
                 distances.append(LabeledVector([(d, v.pop()) for d, v in distance]))
 
+
             # Compute the alias score. With a score of 0, the alias is discarded
-            score = scorer(pivot, len(aliaseds))
+            assert rank >= 0
+            naliases = len(aliaseds)
+            ncontracted = (len(ispace) -
+                           len({i.root for i in pivot.free_symbols if i.is_Dimension}))
+            score = (estimate_cost(pivot, True)*(naliases - 1 + ncontracted*100))/naliases
+            from IPython import embed; embed()
             if score > 0:
                 aliases.add(pivot, aliaseds, list(mapper), distances, score)
 
