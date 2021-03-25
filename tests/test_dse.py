@@ -2101,7 +2101,6 @@ class TestAliases(object):
 
         op = Operator(eqn, opt=('advanced', {'openmp': False, 'cire-maxalias': True,
                                              'cire-mincost-sops': 7}))
-        from IPython import embed; embed()
 
         arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
         assert len(arrays) == 1
