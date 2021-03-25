@@ -3,7 +3,7 @@ from collections import Counter
 from sympy import cos, sin, exp, log
 
 from devito.symbolics.queries import q_routine
-from devito.symbolics.search import retrieve_terminals, retrieve_xops, search
+from devito.symbolics.search import retrieve_xops, search
 from devito.logger import warning
 from devito.tools import as_tuple, flatten
 
@@ -81,7 +81,7 @@ def estimate_cost(exprs, estimate=False):
     """
     trascendentals_cost = {sin: 100, cos: 100, exp: 100, log: 100}
     pow_cost = 50
-    div_cost = 25
+    div_cost = 5
 
     try:
         # Is it a plain symbol/array ?
@@ -109,19 +109,12 @@ def estimate_cost(exprs, estimate=False):
         for op in operations:
             if op.is_Function:
                 if estimate and q_routine(op):
-                    terminals = retrieve_terminals(op, deep=True)
-                    if all(i.function.is_const for i in terminals):
-                        flops += 1
-                    else:
-                        flops += trascendentals_cost.get(op.__class__, 1)
+                    flops += trascendentals_cost.get(op.__class__, 1)
                 else:
                     flops += 1
             elif op.is_Pow:
                 if estimate:
-                    terminals = retrieve_terminals(op, deep=True)
-                    if all(i.function.is_const for i in terminals):
-                        flops += 1
-                    elif op.exp.is_Number:
+                    if op.exp.is_Number:
                         if op.exp < 0:
                             flops += div_cost
                         elif op.exp == 0 or op.exp == 1:

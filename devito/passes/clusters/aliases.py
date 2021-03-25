@@ -549,7 +549,6 @@ def collect(extracted, ispace, minstorage, mincost):
 
             # For each Group, find a rotation that is compatible with a given MI
             mapper = {}
-
             for d, intervals in intervalss.items():
                 # Not all groups may access all dimensions
                 # Example: `d=t` and groups=[Group(...[t, x]...), Group(...[time, x]...)]
@@ -601,14 +600,11 @@ def collect(extracted, ispace, minstorage, mincost):
                 distance = [(d, set(v)) for d, v in LabeledVector.transpose(*distance)]
                 distances.append(LabeledVector([(d, v.pop()) for d, v in distance]))
 
-
             # Compute the alias score. With a score of 0, the alias is discarded
-            assert rank >= 0
-            naliases = len(aliaseds)
-            ncontracted = (len(ispace) -
-                           len({i.root for i in pivot.free_symbols if i.is_Dimension}))
-            score = (estimate_cost(pivot, True)*(naliases - 1 + ncontracted*100))/naliases
-            from IPython import embed; embed()
+            na = len(aliaseds)
+            nr = nredundants(ispace, pivot)
+            mingain = mincost  #TODO
+            score = estimate_cost(pivot, True)*((na - 1) + nr) // mingain
             if score > 0:
                 aliases.add(pivot, aliaseds, list(mapper), distances, score)
 
@@ -663,7 +659,7 @@ def lower_aliases(aliases, meta, maxpar):
         writeto = []
         sub_iterators = {}
         indicess = [[] for _ in a.distances]
-        for i in meta.ispace.intervals:
+        for i in meta.ispace:
             try:
                 interval = imapper[i.dim]
             except KeyError:
@@ -1287,6 +1283,18 @@ def maybe_coeff_key(grid, expr):
         return True
     indexeds = [i for i in expr.free_symbols if i.is_Indexed]
     return any(not set(grid.dimensions) <= set(i.function.dimensions) for i in indexeds)
+
+
+def nredundants(ispace, expr):
+    """
+    The number of redundant Dimensions in `ispace` for `expr`. A Dimension is
+    redundant if it defines an iteration space for `expr` while not appearing
+    among its free symbols. Note that the converse isn't generally true: there
+    could be a Dimension that does not appear in the free symbols while defining
+    a non-redundant iteration space (e.g., an IncrDimension stemming from blocking).
+    """
+    return (len({i.dim.root for i in ispace}) -
+            len({i.root for i in expr.free_symbols if i.is_Dimension}))
 
 
 def wset(exprs):
