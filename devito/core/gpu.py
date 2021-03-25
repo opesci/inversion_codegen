@@ -25,7 +25,7 @@ class DeviceOperatorMixin(object):
     3 => "blocks", "sub-blocks", and "sub-sub-blocks", ...
     """
 
-    CIRE_MINCOST_INV = 50
+    CIRE_MINCOST_INV = 10
     """
     Minimum operation count of a Dimension-invariant aliasing expression to be
     optimized away. Dimension-invariant aliases are lifted outside of one or more
