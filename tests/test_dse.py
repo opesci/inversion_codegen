@@ -1835,8 +1835,8 @@ class TestAliases(object):
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
-        assert summary1[('section0', None)].ops == 19
-        assert summary2[('section0', None)].ops == 15
+        assert summary1[('section0', None)].ops == 17
+        assert summary2[('section0', None)].ops == 14
 
     @switchconfig(profiling='advanced')
     @pytest.mark.parametrize('expr,exp_arrays,exp_ops', [
@@ -2121,7 +2121,9 @@ class TestAliases(object):
 
         eqn = Eq(u.forward, (2*f*f*u.dy).dy + (3*f*u.dy).dy)
 
-        op = Operator(eqn, opt=('advanced', {'openmp': False, 'cire-maxalias': True}))
+        op = Operator(eqn, opt=('advanced', {'openmp': False, 'cire-maxalias': True,
+                                             'cire-mincost-sops': 7}))
+        from IPython import embed; embed()
 
         arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
         assert len(arrays) == 1
