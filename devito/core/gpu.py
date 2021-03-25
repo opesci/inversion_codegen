@@ -71,10 +71,7 @@ class DeviceOperatorMixin(object):
         o['cire-maxalias'] = oo.pop('cire-maxalias', False)
         o['cire-ftemps'] = oo.pop('cire-ftemps', False)
         o['cire-mincost'] = {
-            'invariants': {
-                'scalar': 1,
-                'tensor': oo.pop('cire-mincost-inv', cls.CIRE_MINCOST_INV),
-            },
+            'invariants': oo.pop('cire-mincost-inv', cls.CIRE_MINCOST_INV),
             'sops': oo.pop('cire-mincost-sops', cls.CIRE_MINCOST_SOPS)
         }
 
