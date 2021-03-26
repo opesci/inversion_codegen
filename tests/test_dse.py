@@ -485,7 +485,7 @@ class TestAliases(object):
                              (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -523,7 +523,7 @@ class TestAliases(object):
                              (u[t, x, y+2, z+2] + u[t, x, y+3, z+3])*3.*f + 1))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -562,7 +562,7 @@ class TestAliases(object):
                              (u[t, x+2, y+2, z] + u[t, x+3, y+3, z])*3.*f + 1))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -637,7 +637,7 @@ class TestAliases(object):
                  subdomain=grid.interior)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -684,7 +684,7 @@ class TestAliases(object):
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced',
                                  {'openmp': True, 'min-storage': True,
-                                  'cire-mincost-sops': 1, 'cire-rotate': rotate}))
+                                  'cire-mingain': 1, 'cire-rotate': rotate}))
 
         # Check code generation
         assert len(op1._func_table) == 1
@@ -767,10 +767,8 @@ class TestAliases(object):
                 Eq(v1.forward, (v1+v2).laplace + u1.dt2),
                 Eq(v2.forward, (v1-v2).laplace + u2.dt2)]
 
-        op0 = Operator(eqns, opt=('advanced', {'min-storage': False,
-                                               'cire-mincost-sops': 1}))
-        op1 = Operator(eqns, opt=('advanced', {'min-storage': True,
-                                               'cire-mincost-sops': 1}))
+        op0 = Operator(eqns, opt=('advanced', {'min-storage': False, 'cire-mingain': 1}))
+        op1 = Operator(eqns, opt=('advanced', {'min-storage': True, 'cire-mingain': 1}))
 
         # Check code generation
         # min-storage has no effect in this example
@@ -808,7 +806,7 @@ class TestAliases(object):
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced',
                                  {'openmp': True, 'min-storage': True,
-                                  'cire-mincost-sops': 1, 'cire-rotate': rotate}))
+                                  'cire-mingain': 1, 'cire-rotate': rotate}))
 
         # Check code generation
         assert len(op1._func_table) == 1
@@ -853,7 +851,7 @@ class TestAliases(object):
                   (u[t, x-1, y-3, z+1] + u[t, x, y-3, z+1])*3.*f))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -902,7 +900,7 @@ class TestAliases(object):
                   (u[t, x+1, y_m+3, z+1] + u[t, x+2, y_m+3, z+2])*3.*f))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -948,7 +946,7 @@ class TestAliases(object):
                              (u[t, x, y+3, z+2] + u[t, x+1, y+3, z+2])*3.*f))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                               'cire-rotate': rotate}))
 
         assert len(op1._func_table) == 1
@@ -1142,7 +1140,7 @@ class TestAliases(object):
                                (v[t, x+2, y+2, z+2] + v[t, x+3, y+3, z+3])*3.*u.forward +
                                1))]
         op0 = Operator(eqns, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqns, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqns, opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                                'cire-rotate': rotate}))
 
         # Check code generation
@@ -1188,7 +1186,7 @@ class TestAliases(object):
                              (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': False}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': False, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': False, 'cire-mingain': 1,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -1443,7 +1441,7 @@ class TestAliases(object):
                 s.inject(e.forward, expr=s) +
                 [Eq(f.forward, deriv2 + f + e.forward.dx)])
 
-        op = Operator(eqns, opt=('advanced', {'cire-mincost-sops': 1000}))
+        op = Operator(eqns, opt=('advanced', {'cire-mingain': 100}))
 
         arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
         assert len(arrays) == 3
@@ -1466,7 +1464,7 @@ class TestAliases(object):
         eqns = [Eq(e.forward, e + 1),
                 Eq(f.forward, f*subexpr0 - f*subexpr1 + e.forward.dx)]
 
-        op = Operator(eqns, opt=('advanced', {'cire-mincost-inv': 28}))
+        op = Operator(eqns, opt=('advanced', {'cire-mingain': 28}))
 
         trees = retrieve_iteration_tree(op)
         assert len(trees) == 3
@@ -1611,8 +1609,7 @@ class TestAliases(object):
                              (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced-fsg', {'openmp': True,
-                                                  'cire-mincost-sops': 1}))
+        op1 = Operator(eqn, opt=('advanced-fsg', {'openmp': True, 'cire-mingain': 1}))
 
         # Check code generation
         assert len(op1._func_table) == 2  # Expected two separate blocked loop nests
@@ -1625,7 +1622,7 @@ class TestAliases(object):
         # Check that `cire-rotate=True` has no effect in this code has there's
         # no cross-loop blocking
         op2 = Operator(eqn, opt=('advanced-fsg', {'openmp': True, 'cire-rotate': True,
-                                                  'cire-mincost-sops': 1}))
+                                                  'cire-mingain': 1}))
         assert str(op2) == str(op1)
 
         # Check numerical output
@@ -1660,7 +1657,7 @@ class TestAliases(object):
 
         # Operator
         op0 = Operator(eqns, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqns, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqns, opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                                'cire-rotate': rotate}))
 
         # Check numerical output
@@ -1722,7 +1719,7 @@ class TestAliases(object):
 
         op0 = Operator(eqn, subs=grid.spacing_map, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, subs=grid.spacing_map,
-                       opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+                       opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                          'cire-rotate': rotate}))
 
         # Check numerical output
@@ -1921,7 +1918,7 @@ class TestAliases(object):
 
         eqn = Eq(v.forward, f*(1 + v).dx + 2*f*((1 + v).dx + f))
 
-        op = Operator(eqn, opt=('advanced', {'cire-mincost-sops': 3}))
+        op = Operator(eqn, opt=('advanced', {'cire-mingain': 3}))
 
         # Check code generation
         assert len([i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array])
@@ -2029,9 +2026,9 @@ class TestAliases(object):
                              (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                               'cire-ftemps': True}))
-        op2 = Operator(eqn, opt=('advanced-fsg', {'openmp': True, 'cire-mincost-sops': 1,
+        op2 = Operator(eqn, opt=('advanced-fsg', {'openmp': True, 'cire-mingain': 1,
                                                   'cire-ftemps': True}))
 
         op0(time_M=1, nthreads=nthreads)
@@ -2116,7 +2113,7 @@ class TestAliases(object):
         eqn = Eq(u.forward, (2*f*f*u.dy).dy + (3*f*u.dy).dy)
 
         op = Operator(eqn, opt=('advanced', {'openmp': False, 'cire-maxalias': True,
-                                             'cire-mincost-sops': 7}))
+                                             'cire-mingain': 7}))
 
         arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
         assert len(arrays) == 1
@@ -2135,7 +2132,7 @@ class TestAliases(object):
 
         eqn = Eq(u.forward, u.dy.dy + 1., implicit_dims=[cond])
 
-        op = Operator(eqn, opt=('advanced', {'cire-mincost-sops': 1, 'openmp': True}))
+        op = Operator(eqn, opt=('advanced', {'cire-mingain': 1, 'openmp': True}))
 
         op.apply(time=8)
 
