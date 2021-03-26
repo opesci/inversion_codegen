@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 
 from devito import (Grid, TimeFunction, SparseTimeFunction, Function, Operator, Eq,
-                    SubDimension, SubDomain, configuration)
+                    SubDimension, SubDomain, configuration, solve)
 from devito.exceptions import InvalidOperator
 from devito.ir import FindSymbols, retrieve_iteration_tree
 from devito.passes.equations.linearity import _is_const_coeff
@@ -26,7 +26,7 @@ class TestCollectDerivatives(object):
         assert not _is_const_coeff(g, f.dt)
         assert not _is_const_coeff(f, g.dt)
 
-    def test_expr_collection(self):
+    def test_nocollection_if_diff_dims(self):
         """
         Test that expressions with different time dimensions are not collected.
         """
@@ -46,6 +46,26 @@ class TestCollectDerivatives(object):
             expr2 = Operator._lower_exprs([eq.evaluate])[0]
 
         assert expr == expr2
+
+    def test_solve(self):
+        """
+        By remaining unevaluated until after Operator's collect_derivatives,
+        the Derivatives inside a Solve object should be collected.
+        """
+        grid = Grid(shape=(10, 10))
+        u = TimeFunction(name="u", grid=grid, space_order=4, time_order=2)
+        f = TimeFunction(name="f", grid=grid, space_order=4)
+
+        pde = u.dt2 - (u.dx.dx + u.dy.dy) - 3. * u.dx.dy
+        eq = Eq(u.forward, solve(pde, u.forward))
+
+        with timed_region('x'):
+            # Since all Function are time dependent, there should be no collection
+            # and produce the same result as with the pre evaluated expression
+            eqn = Operator._lower_exprs([eq])[0]
+
+        op = Operator(eq)
+        from IPython import embed; embed()
 
 
 class TestBuffering(object):

@@ -27,7 +27,7 @@ class UnevaluatedSparseOperation(Evaluable):
         A routine generating the symbolic expressions for the operation.
     """
 
-    subdomain = None
+    subdomain = None  #TODO: DROP???
 
     def __init__(self, interpolator, callback):
         self.interpolator = interpolator
