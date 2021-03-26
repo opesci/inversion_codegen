@@ -100,7 +100,7 @@ class CireTransformer(object):
         self.opt_minstorage = options['min-storage']
         self.opt_rotate = options['cire-rotate']
         self.opt_ftemps = options['cire-ftemps']
-        self.opt_mincost = options['cire-mincost'][self.optname]
+        self.opt_mingain = options['cire-mingain']
 
     def _aliases_from_clusters(self, clusters, exclude, meta):
         # [Clusters]_n -> [AliasList]_m
@@ -115,7 +115,7 @@ class CireTransformer(object):
                 mapper = extract(exprs)
 
                 found = collect(mapper.extracted, meta.ispace,
-                                self.opt_minstorage, self.opt_mincost)
+                                self.opt_minstorage, self.opt_mingain)
 
                 exprs, chosen = choose(found, exprs, mapper)
                 aliases.update(chosen)
@@ -413,7 +413,7 @@ class GeneratorDerivatives(Generator):
             yield lambda i: cls._uxmap_derivatives(i, exclude, maxalias, make, n)
 
 
-def collect(extracted, ispace, minstorage, mincost):
+def collect(extracted, ispace, minstorage, mingain):
     """
     Find groups of aliasing expressions.
 
@@ -582,7 +582,6 @@ def collect(extracted, ispace, minstorage, mincost):
             # Compute the alias score. With a score of 0, the alias is discarded
             na = len(aliaseds)
             nr = nredundants(ispace, pivot)
-            mingain = mincost  #TODO
             score = estimate_cost(pivot, True)*((na - 1) + nr) // mingain
             if score > 0:
                 aliases.add(pivot, aliaseds, list(mapper), distances, score)
