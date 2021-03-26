@@ -158,6 +158,8 @@ class CireTransformer(object):
             processed.append(c.rebuild(exprs=cexprs, ispace=ispace, dspace=dspace))
 
         assert len(exprs) == 0
+        if "dummy" in str(processed):
+            from IPython import embed; embed()
 
         return processed
 
