@@ -24,19 +24,12 @@ class Cpu64OperatorMixin(object):
     3 => "blocks", "sub-blocks", and "sub-sub-blocks", ...
     """
 
-    CIRE_MINCOST_INV = 10
+    CIRE_MINGAIN = 10
     """
-    Minimum operation count of a Dimension-invariant aliasing expression to be
-    optimized away. Dimension-invariant aliases are lifted outside of one or more
-    invariant loop(s), so they require tensor temporaries that can be potentially
-    very large (e.g., the whole domain in the case of time-invariant aliases).
+    Minimum operation count reduction for a redundant expression to be optimized
+    away. Higher (lower) values make a redundant expression less (more) likely to
+    be optimized away.
     """
-
-    CIRE_MINCOST_SOPS = 10
-    """
-    Minimum operation count of a sum-of-product aliasing expression to be optimized away.
-    """
-    #TODO: DROP THE MINCOST_*, INTRODUCE SINGLE CIRE_MINCOST ??
 
     PAR_COLLAPSE_NCORES = 4
     """
@@ -91,10 +84,7 @@ class Cpu64OperatorMixin(object):
         o['cire-maxpar'] = oo.pop('cire-maxpar', False)
         o['cire-maxalias'] = oo.pop('cire-maxalias', False)
         o['cire-ftemps'] = oo.pop('cire-ftemps', False)
-        o['cire-mincost'] = {
-            'invariants': oo.pop('cire-mincost-inv', cls.CIRE_MINCOST_INV),
-            'sops': oo.pop('cire-mincost-sops', cls.CIRE_MINCOST_SOPS)
-        }
+        o['cire-mingain'] = oo.pop('cire-mingain', cls.CIRE_MINGAIN)
 
         # Shared-memory parallelism
         o['par-collapse-ncores'] = oo.pop('par-collapse-ncores', cls.PAR_COLLAPSE_NCORES)

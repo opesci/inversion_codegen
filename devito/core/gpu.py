@@ -25,17 +25,11 @@ class DeviceOperatorMixin(object):
     3 => "blocks", "sub-blocks", and "sub-sub-blocks", ...
     """
 
-    CIRE_MINCOST_INV = 10
+    CIRE_MINGAIN = 10
     """
-    Minimum operation count of a Dimension-invariant aliasing expression to be
-    optimized away. Dimension-invariant aliases are lifted outside of one or more
-    invariant loop(s), so they require tensor temporaries that can be potentially
-    very large (e.g., the whole domain in the case of time-invariant aliases).
-    """
-
-    CIRE_MINCOST_SOPS = 10
-    """
-    Minimum operation count of a sum-of-product aliasing expression to be optimized away.
+    Minimum operation count reduction for a redundant expression to be optimized
+    away. Higher (lower) values make a redundant expression less (more) likely to
+    be optimized away.
     """
 
     PAR_CHUNK_NONAFFINE = 3
@@ -70,10 +64,7 @@ class DeviceOperatorMixin(object):
         o['cire-maxpar'] = oo.pop('cire-maxpar', True)
         o['cire-maxalias'] = oo.pop('cire-maxalias', False)
         o['cire-ftemps'] = oo.pop('cire-ftemps', False)
-        o['cire-mincost'] = {
-            'invariants': oo.pop('cire-mincost-inv', cls.CIRE_MINCOST_INV),
-            'sops': oo.pop('cire-mincost-sops', cls.CIRE_MINCOST_SOPS)
-        }
+        o['cire-mingain'] = oo.pop('cire-mingain', cls.CIRE_MINGAIN)
 
         # GPU parallelism
         o['par-collapse-ncores'] = 1  # Always use a collapse clause
