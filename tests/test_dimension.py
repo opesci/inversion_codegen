@@ -917,7 +917,7 @@ class TestConditionalDimension(object):
         eqns = [Eq(u.forward, u + 1, subdomain=grid.interior),
                 Eq(u.forward, u.dx.dx + 1., implicit_dims=[cond])]
 
-        op = Operator(eqns, opt=('advanced-fsg', {'cire-mincost-sops': 1}))
+        op = Operator(eqns, opt=('advanced-fsg', {'cire-mingain': 1}))
 
         conds = FindNodes(Conditional).visit(op)
         assert len(conds) == 1
