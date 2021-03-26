@@ -167,13 +167,13 @@ def test_pow_to_mul(expr, expected):
     ('Eq(t0, cos(fa*fb))', 101, True),
     ('Eq(t0, cos(fa[x]*fb[x]))', 101, True),
     ('Eq(t0, cos(t1*t2))', 101, True),
-    ('Eq(t0, cos(c*c))', 2, True),  # `cos(...constants...)` counts as 1
+    ('Eq(t0, cos(c*c))', 101, True),
     ('Eq(t0, t1**3)', 2, True),
     ('Eq(t0, t1**4)', 3, True),
-    ('Eq(t0, t2*t1**-1)', 26, True),
+    ('Eq(t0, t2*t1**-1)', 6, True),
     ('Eq(t0, t1**t2)', 50, True),
-    ('Eq(t0, 3.2/h_x)', 2, True),  # seen as `3.2*(1/h_x)`, so counts as 2
-    ('Eq(t0, 3.2/h_x*fa + 2.4/h_x*fb)', 7, True),  # `pow(...constants...)` counts as 1
+    ('Eq(t0, 3.2/h_x)', 6, True),  # seen as `3.2*(1/h_x)`, so counts as 2
+    ('Eq(t0, 3.2/h_x*fa + 2.4/h_x*fb)', 15, True),  # `pow(...constants...)` counts as 1
 ])
 def test_estimate_cost(expr, expected, estimate):
     # Note: integer arithmetic isn't counted
