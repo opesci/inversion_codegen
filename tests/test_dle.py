@@ -680,10 +680,10 @@ class TestNestedParallelism(object):
         f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
 
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3*f +
-                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3*f + 1))
+        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3.*f +
+                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1))
         op = Operator(eqn, opt=('advanced', {'openmp': True,
-                                             'cire-mincost-sops': 1,
+                                             'cire-mingain': 1,
                                              'par-nested': 0,
                                              'par-collapse-ncores': 1,
                                              'par-dynamic-work': 0}))
@@ -713,10 +713,10 @@ class TestNestedParallelism(object):
         f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
 
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3*f +
-                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3*f + 1))
+        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3.*f +
+                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1))
         op = Operator(eqn, opt=('advanced', {'openmp': True,
-                                             'cire-mincost-sops': 1,
+                                             'cire-mingain': 1,
                                              'cire-rotate': True,
                                              'par-nested': 0,
                                              'par-collapse-ncores': 1,
