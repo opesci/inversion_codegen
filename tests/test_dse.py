@@ -1813,6 +1813,20 @@ class TestAliases(object):
         assert summary1[('section0', None)].ops == 17
         assert summary2[('section0', None)].ops == 14
 
+    def test_nested_first_derivatives_unbalanced(self):
+        grid = Grid(shape=(3, 3))
+
+        u = TimeFunction(name="u", grid=grid, time_order=2, space_order=4)
+        m = Function(name='m', grid=grid, space_order=4)
+
+        eq = Eq(u.forward, u.dx.dy + u*(u.dx.dy + 1.))
+
+        op = Operator(eq, opt=('cire-sops', {'cire-mingain': 1}))
+
+        # Make sure there are no undefined symbols
+        assert 'dummy' not in str(op)
+        op.apply(time_M=0)
+
     @switchconfig(profiling='advanced')
     @pytest.mark.parametrize('expr,exp_arrays,exp_ops', [
         ('f.dx.dx + g.dx.dx',
