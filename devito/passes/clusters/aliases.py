@@ -158,8 +158,6 @@ class CireTransformer(object):
             processed.append(c.rebuild(exprs=cexprs, ispace=ispace, dspace=dspace))
 
         assert len(exprs) == 0
-        if "dummy" in str(processed):
-            from IPython import embed; embed()
 
         return processed
 
@@ -875,7 +873,7 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
                     indices.append(i.dim - i.lower)
 
             obj = make(name=name, dimensions=dimensions, halo=halo, dtype=dtype)
-            expression = Eq(obj[indices], pivot)
+            expression = Eq(obj[indices], uxreplace(pivot, subs))
 
             callback = lambda idx: obj[idx]
         else:
@@ -883,7 +881,7 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
             assert writeto.size == 0
 
             obj = Symbol(name=name, dtype=dtype)
-            expression = Eq(obj, pivot)
+            expression = Eq(obj, uxreplace(pivot, subs))
 
             callback = lambda idx: obj
 
