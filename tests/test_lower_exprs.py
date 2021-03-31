@@ -3,6 +3,7 @@ import numpy as np
 
 from devito import (Grid, TimeFunction, SparseTimeFunction, Function, Operator, Eq,
                     SubDimension, SubDomain, configuration, solve)
+from devito.finite_differences import Derivative
 from devito.exceptions import InvalidOperator
 from devito.ir import FindSymbols, retrieve_iteration_tree
 from devito.passes.equations.linearity import collect_derivatives, _is_const_coeff
@@ -21,8 +22,10 @@ class TestCollectDerivatives(object):
         test that subdimension and parent are not misinterpreted as constants.
         """
         grid = Grid((10,))
+
         f = TimeFunction(name="f", grid=grid, save=10)
         g = TimeFunction(name="g", grid=grid)
+
         assert not _is_const_coeff(g, f.dt)
         assert not _is_const_coeff(f, g.dt)
 
@@ -31,15 +34,16 @@ class TestCollectDerivatives(object):
         Test that expressions with different time dimensions are not collected.
         """
         grid = Grid((10,))
+
         f = TimeFunction(name="f", grid=grid, save=10)
         f2 = TimeFunction(name="f2", grid=grid, save=10)
         g = TimeFunction(name="g", grid=grid)
         g2 = TimeFunction(name="g2", grid=grid)
-
         w = Function(name="w", grid=grid)
-        eq = Eq(w, f.dt*g + f2.dt*g2)
 
         with timed_region('x'):
+            eq = Eq(w, f.dt*g + f2.dt*g2)
+
             # Since all Function are time dependent, there should be no collection
             # and produce the same result as with the pre evaluated expression
             expr = Operator._lower_exprs([eq])[0]
@@ -47,24 +51,58 @@ class TestCollectDerivatives(object):
 
         assert expr == expr2
 
+    def test_numeric_constant(self):
+        grid = Grid(shape=(10, 10))
+
+        u = TimeFunction(name="u", grid=grid, space_order=4, time_order=2)
+
+        eq = Eq(u.forward, u.dx.dx + 0.3*u.dy.dx)
+        leq = collect_derivatives.func([eq])[0]
+
+        assert len(leq.find(Derivative)) == 3
+
+    def test_symbolic_constant(self):
+        grid = Grid(shape=(10, 10))
+        dt = grid.time_dim.spacing
+
+        u = TimeFunction(name="u", grid=grid, space_order=4, time_order=2)
+
+        eq = Eq(u.forward, u.dx.dx + dt**0.2*u.dy.dx)
+        leq = collect_derivatives.func([eq])[0]
+
+        assert len(leq.find(Derivative)) == 3
+
+    def test_symbolic_constant_times_add(self):
+        grid = Grid(shape=(10, 10))
+        dt = grid.time_dim.spacing
+
+        u = TimeFunction(name="u", grid=grid, space_order=4, time_order=2)
+        f = Function(name='f', grid=grid)
+
+        eq = Eq(u.forward, u.laplace + dt**0.2*u.biharmonic(1/f))
+        leq = collect_derivatives.func([eq])[0]
+        
+        from IPython import embed; embed()
+
+        assert len(leq.find(Derivative)) == 3
+
     def test_solve(self):
         """
         By remaining unevaluated until after Operator's collect_derivatives,
         the Derivatives inside a Solve object should be collected.
         """
         grid = Grid(shape=(10, 10))
+
         u = TimeFunction(name="u", grid=grid, space_order=4, time_order=2)
         f = TimeFunction(name="f", grid=grid, space_order=4)
 
         pde = u.dt2 - (u.dx.dx + u.dy.dy) - u.dx.dy
         eq = Eq(u.forward, solve(pde, u.forward))
+        leq = collect_derivatives.func([eq])[0]
 
-        with timed_region('x'):
-            # Since all Function are time dependent, there should be no collection
-            # and produce the same result as with the pre evaluated expression
-            leq = collect_derivatives([eq])[0]
-
-        from IPython import embed; embed()
+        assert len(eq.rhs.expr.find(Derivative)) == 6
+        assert len(leq.rhs.expr.find(Derivative)) == 5
+        assert len(leq.rhs.expr.args[1].find(Derivative)) == 3  # Check factorization
 
 
 class TestBuffering(object):

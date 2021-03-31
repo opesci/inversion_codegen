@@ -93,6 +93,7 @@ def _(expr, terms):
 @_doit_handle.register(sympy.Mul)
 def _(expr, terms):
     derivs, others = split(terms, lambda i: i.deriv is not None)
+    from IPython import embed; embed()
     if len(derivs) == 1:
         # Linear => propagate found Derivative upstream
         deriv = derivs[0].deriv

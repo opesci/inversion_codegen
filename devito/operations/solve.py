@@ -11,19 +11,19 @@ __all__ = ['solve']
 class Solve(Evaluable, sympy.Basic):  #TODO: inheriting from sympy.BAsic for sympify...
                                       # butmaybe there's a simpler way?
 
-    def __init__(self, eq, target, **kwargs): 
-        self.eq = eq
+    def __init__(self, expr, target, **kwargs): 
+        self.expr = expr
         self.target = target
         self.kwargs = kwargs
 
     def __repr__(self):
-        return "Solve(%s, %s)" % (self.eq, self.target)
+        return "Solve(%s, %s)" % (self.expr, self.target)
 
     __str__ = __repr__
 
     @property
     def args(self):
-        return (self.eq,)
+        return (self.expr,)
 
     @property
     def func(self):
@@ -31,10 +31,10 @@ class Solve(Evaluable, sympy.Basic):  #TODO: inheriting from sympy.BAsic for sym
 
     @property
     def evaluate(self):
-        if isinstance(self.eq, Eq):
-            expr = self.eq.lhs - self.eq.rhs if self.eq.rhs != 0 else self.eq.lhs
+        if isinstance(self.expr, Eq):
+            expr = self.expr.lhs - self.expr.rhs if self.expr.rhs != 0 else self.expr.lhs
         else:
-            expr = self.eq
+            expr = self.expr
 
         sols = []
         for e, t in zip(as_tuple(expr), as_tuple(self.target)):
@@ -56,7 +56,7 @@ class Solve(Evaluable, sympy.Basic):  #TODO: inheriting from sympy.BAsic for sym
             return sols[0]
 
 
-def solve(eq, target, **kwargs):
+def solve(expr, target, **kwargs):
     """
     Algebraically rearrange an Eq w.r.t. a given symbol.
 
@@ -64,8 +64,8 @@ def solve(eq, target, **kwargs):
 
     Parameters
     ----------
-    eq : expr-like
-        The equation to be rearranged.
+    expr : expr-like
+        The expression to be rearranged, possibly an Eq.
     target : symbol
         The symbol w.r.t. which the equation is rearranged. May be a `Function`
         or any other symbolic object.
@@ -73,4 +73,4 @@ def solve(eq, target, **kwargs):
         Symbolic optimizations applied while rearranging the equation. For more
         information. refer to ``sympy.solve.__doc__``.
     """
-    return Solve(eq, target, **kwargs)
+    return Solve(expr, target, **kwargs)
