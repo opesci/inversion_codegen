@@ -22,6 +22,14 @@ class Solve(Evaluable, sympy.Basic):  #TODO: inheriting from sympy.BAsic for sym
     __str__ = __repr__
 
     @property
+    def args(self):
+        return (self.eq,)
+
+    @property
+    def func(self):
+        return lambda e, **kw: self.__class__(e, self.target, **self.kwargs)
+
+    @property
     def evaluate(self):
         if isinstance(self.eq, Eq):
             expr = self.eq.lhs - self.eq.rhs if self.eq.rhs != 0 else self.eq.lhs

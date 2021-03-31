@@ -5,7 +5,7 @@ from devito import (Grid, TimeFunction, SparseTimeFunction, Function, Operator, 
                     SubDimension, SubDomain, configuration, solve)
 from devito.exceptions import InvalidOperator
 from devito.ir import FindSymbols, retrieve_iteration_tree
-from devito.passes.equations.linearity import _is_const_coeff
+from devito.passes.equations.linearity import collect_derivatives, _is_const_coeff
 from devito.tools import timed_region
 
 
@@ -56,15 +56,14 @@ class TestCollectDerivatives(object):
         u = TimeFunction(name="u", grid=grid, space_order=4, time_order=2)
         f = TimeFunction(name="f", grid=grid, space_order=4)
 
-        pde = u.dt2 - (u.dx.dx + u.dy.dy) - 3. * u.dx.dy
+        pde = u.dt2 - (u.dx.dx + u.dy.dy) - u.dx.dy
         eq = Eq(u.forward, solve(pde, u.forward))
 
         with timed_region('x'):
             # Since all Function are time dependent, there should be no collection
             # and produce the same result as with the pre evaluated expression
-            eqn = Operator._lower_exprs([eq])[0]
+            leq = collect_derivatives([eq])[0]
 
-        op = Operator(eq)
         from IPython import embed; embed()
 
 
