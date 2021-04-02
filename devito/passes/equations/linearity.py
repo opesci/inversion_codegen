@@ -18,7 +18,7 @@ def collect_derivatives(expressions):
     larger redundant sub-expressions.
     """
     # E.g., 0.2*u.dx -> (0.2*u).dx
-    expressions = [_aggregate_coeffs(e) for e in expressions]
+    expressions = [_aggregate_coeffs(e).expr for e in expressions]
 
     # E.g., (0.2*u).dx + (0.3*v).dx -> (0.2*u + 0.3*v).dx
     processed = [_collect_derivatives(e) for e in expressions]
@@ -27,12 +27,7 @@ def collect_derivatives(expressions):
     return processed
 
 
-Term = namedtuple('Term', 'other deriv func')
-Term.__new__.__defaults__ = (None, None, None)
-
-# `D0(a) + D1(b) == D(a + b)` <=> `D0` and `D1`'s metadata match, i.e. they
-# are the same type of derivative
-key = lambda e: e._metadata
+# subpass: aggregate_coeffs
 
 
 @singledispatch
@@ -68,52 +63,80 @@ def _(c, deriv):
     return all(_is_const_coeff(a, deriv) for a in c.args)
 
 
+class Bunch(object):
+
+    def __init__(self, expr, derivs=None, dims=None):
+        self.expr = expr
+        self.derivs = derivs or []
+        self.dims = dims or set()
+
+
 @singledispatch
 def _aggregate_coeffs(expr):
-    return rebuild_if_untouched(expr, [_aggregate_coeffs(a)[0] for a in expr.args]), []
-
-
-@_aggregate_coeffs.register(sympy.Eq)
-def _(expr):
-    return rebuild_if_untouched(expr, [_aggregate_coeffs(a)[0] for a in expr.args])
+    args = [_aggregate_coeffs(a).expr for a in expr.args]
+    return Bunch(rebuild_if_untouched(expr, args))
 
 
 @_aggregate_coeffs.register(sympy.Add)
 def _(expr):
-    args, derivs = zip(*[_aggregate_coeffs(a) for a in expr.args])
+    result = [_aggregate_coeffs(a) for a in expr.args]
+
+    args = [i.expr for i in result]
     expr = rebuild_if_untouched(expr, args, evaluate=True)
-    return expr, flatten(derivs)
+
+    derivs = flatten(i.derivs for i in result)
+    dims = set().union(*[i.dims for i in result])
+
+    return Bunch(expr, derivs, dims)
+
+
+@_aggregate_coeffs.register(sympy.Function)
+def _(expr):
+    dims = set()
+    for i in expr.free_symbols:
+        try:
+            dims.update(i._defines)
+        except AttributeError:
+            pass
+    return Bunch(expr, dims=dims)
 
 
 @_aggregate_coeffs.register(sympy.Derivative)
 def _(expr):
-    expr = rebuild_if_untouched(expr, [_aggregate_coeffs(a)[0] for a in expr.args])
-    return expr, [expr]
+    result = [_aggregate_coeffs(a) for a in expr.args]
+
+    args = [i.expr for i in result]
+    expr = rebuild_if_untouched(expr, args)
+
+    return Bunch(expr, [expr], result.dims)
 
 
 @_aggregate_coeffs.register(sympy.Mul)
 def _(expr):
-    args, found = zip(*[_aggregate_coeffs(a) for a in expr.args])
+    result = [_aggregate_coeffs(a) for a in expr.args]
 
     hope_coeffs = []
     with_derivs = []
-    for a, v in zip(args, found):
-        if v:
-            with_derivs.append((a, v))
+    for i in result:
+        if i.derivs:
+            with_derivs.append((i.expr, i.derivs))
         else:
-            hope_coeffs.append(a)
+            hope_coeffs.append(i.expr)
 
     if not with_derivs:
-        return expr, []
+        return Bunch(expr)
     elif len(with_derivs) > 1:
         # E.g., non-linear term, expansion won't help (in fact, it would only
         # cause an increase in operation count), so we skip
-        return expr, []
+        return Bunch(expr)
     arg_deriv, derivs = with_derivs.pop(0)
 
     #TODO: Improve: just carry around the seen dims and compute intersection with .dx...
+    cdims = set().union(*[i.dims for i in result])
+    ddims 
+    from IPython import embed; embed()
     if not all(_is_const_coeff(i, v) for i, v in product(hope_coeffs, derivs)):
-        return expr, []
+        return Bunch(expr)
 
     if len(derivs) == 1 and arg_deriv is derivs[0]:
         expr = arg_deriv._new_from_self(expr=expr.func(*hope_coeffs, arg_deriv.expr))
@@ -127,7 +150,19 @@ def _(expr):
                 args.append(a)
         expr = arg_deriv.func(*args, evaluate=False)
 
-    return expr, []
+
+    return Bunch(expr, dims=dims)
+
+
+# subpass: collect_derivatives
+
+
+Term = namedtuple('Term', 'other deriv func')
+Term.__new__.__defaults__ = (None, None, None)
+
+# `D0(a) + D1(b) == D(a + b)` <=> `D0` and `D1`'s metadata match, i.e. they
+# are the same type of derivative
+key = lambda e: e._metadata
 
 
 def _collect_derivatives(expr):
