@@ -70,20 +70,18 @@ def _(c, deriv):
 
 @singledispatch
 def _aggregate_coeffs(expr):
-    expr = rebuild_if_untouched(expr, [_aggregate_coeffs(a)[0] for a in expr.args])
-    return expr, []
+    return rebuild_if_untouched(expr, [_aggregate_coeffs(a)[0] for a in expr.args]), []
 
 
 @_aggregate_coeffs.register(sympy.Eq)
 def _(expr):
-    expr = rebuild_if_untouched(expr, [_aggregate_coeffs(a)[0] for a in expr.args])
-    return expr
+    return rebuild_if_untouched(expr, [_aggregate_coeffs(a)[0] for a in expr.args])
 
 
 @_aggregate_coeffs.register(sympy.Add)
 def _(expr):
     args, derivs = zip(*[_aggregate_coeffs(a) for a in expr.args])
-    expr = rebuild_if_untouched(expr, args)
+    expr = rebuild_if_untouched(expr, args, evaluate=True)
     return expr, flatten(derivs)
 
 
@@ -115,14 +113,19 @@ def _(expr):
 
     #TODO: Improve: just carry around the seen dims and compute intersection with .dx...
     if not all(_is_const_coeff(i, v) for i, v in product(hope_coeffs, derivs)):
-        return expr
+        return expr, []
 
     if len(derivs) == 1 and arg_deriv is derivs[0]:
         expr = arg_deriv._new_from_self(expr=expr.func(*hope_coeffs, arg_deriv.expr))
     else:
-        derivs = [i._new_from_self(expr=expr.func(*hope_coeffs, i.expr)) for i in derivs]
-        from IPython import embed; embed()
-        expr = arg_deriv.func()
+        assert arg_deriv.is_Add
+        args = []
+        for a in arg_deriv.args:
+            if a in derivs:
+                args.append(a._new_from_self(expr=expr.func(*hope_coeffs, a.expr)))
+            else:
+                args.append(a)
+        expr = arg_deriv.func(*args, evaluate=False)
 
     return expr, []
 
