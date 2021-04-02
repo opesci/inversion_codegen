@@ -81,7 +81,7 @@ class TestCollectDerivatives(object):
 
         eq = Eq(u.forward, u.laplace + dt**0.2*u.biharmonic(1/f))
         leq = collect_derivatives.func([eq])[0]
-        
+
         from IPython import embed; embed()
 
         assert len(leq.find(Derivative)) == 3

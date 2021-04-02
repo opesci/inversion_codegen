@@ -1,10 +1,11 @@
 from collections import namedtuple
 from functools import singledispatch
+from itertools import product
 
 import sympy
 
-from devito.symbolics import q_leaf, q_function
-from devito.tools import as_mapper, split, timed_pass
+from devito.symbolics import rebuild_if_untouched, q_leaf, q_function
+from devito.tools import as_mapper, flatten, split, timed_pass
 
 __all__ = ['collect_derivatives']
 
@@ -16,8 +17,13 @@ def collect_derivatives(expressions):
     same type. This may help CIRE by creating fewer temporaries and catching
     larger redundant sub-expressions.
     """
-    processed = [_doit(e) for e in expressions]
+    # E.g., 0.2*u.dx -> (0.2*u).dx
+    expressions = [_aggregate_coeffs(e) for e in expressions]
+
+    # E.g., (0.2*u).dx + (0.3*v).dx -> (0.2*u + 0.3*v).dx
+    processed = [_collect_derivatives(e) for e in expressions]
     processed = list(zip(*processed))[0]
+
     return processed
 
 
@@ -62,38 +68,96 @@ def _(c, deriv):
     return all(_is_const_coeff(a, deriv) for a in c.args)
 
 
-def _doit(expr):
+@singledispatch
+def _aggregate_coeffs(expr):
+    expr = rebuild_if_untouched(expr, [_aggregate_coeffs(a)[0] for a in expr.args])
+    return expr, []
+
+
+@_aggregate_coeffs.register(sympy.Eq)
+def _(expr):
+    expr = rebuild_if_untouched(expr, [_aggregate_coeffs(a)[0] for a in expr.args])
+    return expr
+
+
+@_aggregate_coeffs.register(sympy.Add)
+def _(expr):
+    args, derivs = zip(*[_aggregate_coeffs(a) for a in expr.args])
+    expr = rebuild_if_untouched(expr, args)
+    return expr, flatten(derivs)
+
+
+@_aggregate_coeffs.register(sympy.Derivative)
+def _(expr):
+    expr = rebuild_if_untouched(expr, [_aggregate_coeffs(a)[0] for a in expr.args])
+    return expr, [expr]
+
+
+@_aggregate_coeffs.register(sympy.Mul)
+def _(expr):
+    args, found = zip(*[_aggregate_coeffs(a) for a in expr.args])
+
+    hope_coeffs = []
+    with_derivs = []
+    for a, v in zip(args, found):
+        if v:
+            with_derivs.append((a, v))
+        else:
+            hope_coeffs.append(a)
+
+    if not with_derivs:
+        return expr, []
+    elif len(with_derivs) > 1:
+        # E.g., non-linear term, expansion won't help (in fact, it would only
+        # cause an increase in operation count), so we skip
+        return expr, []
+    arg_deriv, derivs = with_derivs.pop(0)
+
+    #TODO: Improve: just carry around the seen dims and compute intersection with .dx...
+    if not all(_is_const_coeff(i, v) for i, v in product(hope_coeffs, derivs)):
+        return expr
+
+    if len(derivs) == 1 and arg_deriv is derivs[0]:
+        expr = arg_deriv._new_from_self(expr=expr.func(*hope_coeffs, arg_deriv.expr))
+    else:
+        derivs = [i._new_from_self(expr=expr.func(*hope_coeffs, i.expr)) for i in derivs]
+        from IPython import embed; embed()
+        expr = arg_deriv.func()
+
+    return expr, []
+
+
+def _collect_derivatives(expr):
     try:
         if q_function(expr) or q_leaf(expr):
             # Do not waste time
-            return _doit_handle(expr, [])
+            return _collect_derivatives_handle(expr, [])
     except AttributeError:
         # E.g., `Injection`
-        return _doit_handle(expr, [])
+        return _collect_derivatives_handle(expr, [])
     args = []
     terms = []
     for a in expr.args:
-        ax, term = _doit(a)
+        ax, term = _collect_derivatives(a)
         args.append(ax)
         terms.append(term)
     expr = expr.func(*args, evaluate=False)
-    return _doit_handle(expr, terms)
+    return _collect_derivatives_handle(expr, terms)
 
 
 @singledispatch
-def _doit_handle(expr, terms):
+def _collect_derivatives_handle(expr, terms):
     return expr, Term(expr)
 
 
-@_doit_handle.register(sympy.Derivative)
+@_collect_derivatives_handle.register(sympy.Derivative)
 def _(expr, terms):
     return expr, Term(sympy.S.One, expr)
 
 
-@_doit_handle.register(sympy.Mul)
+@_collect_derivatives_handle.register(sympy.Mul)
 def _(expr, terms):
     derivs, others = split(terms, lambda i: i.deriv is not None)
-    from IPython import embed; embed()
     if len(derivs) == 1:
         # Linear => propagate found Derivative upstream
         deriv = derivs[0].deriv
@@ -103,7 +167,7 @@ def _(expr, terms):
         return expr, Term(expr)
 
 
-@_doit_handle.register(sympy.Add)
+@_collect_derivatives_handle.register(sympy.Add)
 def _(expr, terms):
     derivs, others = split(terms, lambda i: i.deriv is not None)
     if not derivs:
