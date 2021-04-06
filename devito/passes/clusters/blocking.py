@@ -26,6 +26,9 @@ class Blocking(Queue):
 
     @timed_pass(name='blocking')
     def process(self, clusters):
+        # Turns the pass into essentially a no-op if the block levels is 0
+        if self.levels == 0:
+            return clusters
         # Preprocess: heuristic: drop TILABLE from innermost Dimensions to
         # maximize vectorization
         processed = []

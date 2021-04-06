@@ -293,7 +293,7 @@ class TestOperator(object):
 
         assert np.all(np.array(u.data[0, :, :, :]) == time_steps)
 
-    def iso_acoustic(self, **opt_options):
+    def iso_acoustic(self, opt):
         shape = (101, 101)
         extent = (1000, 1000)
         origin = (0., 0.)
@@ -332,7 +332,7 @@ class TestOperator(object):
         src_term = src.inject(field=u.forward, expr=src * dt**2 / m)
         rec_term = rec.interpolate(expr=u.forward)
 
-        op = Operator([stencil] + src_term + rec_term, opt=('advanced', opt_options))
+        op = Operator([stencil] + src_term + rec_term, opt=opt)
 
         # Make sure we've indeed generated OpenMP offloading code
         assert 'omp target' in str(op)
@@ -342,8 +342,9 @@ class TestOperator(object):
         assert np.isclose(norm(rec), 490.55, atol=1e-2, rtol=0)
 
     @skipif('nodevice')
-    def test_iso_acoustic(self):
-        TestOperator().iso_acoustic()
+    @pytest.mark.parametrize('blocklevels', [0, 1])
+    def test_iso_acoustic(self, blocklevels):
+        TestOperator().iso_acoustic(opt=('advanced', {'blocklevels': blocklevels}))
 
     @pytest.mark.parallel(mode=[2, 4])
     @skipif('nodevice')
@@ -364,6 +365,6 @@ class TestOperator(object):
 
     @pytest.mark.parallel(mode=[2, 4])
     @skipif('nodevice')
-    def test_mpi_iso_acoustic(self):
-        opt_options = {'gpu-direct': True}
-        TestOperator().iso_acoustic(**opt_options)
+    @pytest.mark.parametrize('blocklevels', [0, 1])
+    def test_mpi_iso_acoustic(self, blocklevels):
+        TestOperator().iso_acoustic(opt=('advanced', {'blocklevels': blocklevels}))

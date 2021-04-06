@@ -128,8 +128,7 @@ class TestOperator(object):
 
         assert np.all(np.array(u.data[0, :, :, :]) == time_steps)
 
-    @skipif('nodevice')
-    def test_iso_ac(self):
+    def iso_acoustic(self, opt):
         shape = (101, 101)
         extent = (1000, 1000)
         origin = (0., 0.)
@@ -168,7 +167,7 @@ class TestOperator(object):
         src_term = src.inject(field=u.forward, expr=src * dt**2 / m)
         rec_term = rec.interpolate(expr=u.forward)
 
-        op = Operator([stencil] + src_term + rec_term)
+        op = Operator([stencil] + src_term + rec_term, opt=opt)
 
         # Make sure we've indeed generated OpenACC code
         assert 'acc parallel' in str(op)
@@ -176,6 +175,11 @@ class TestOperator(object):
         op(time=time_range.num-1, dt=dt)
 
         assert np.isclose(norm(rec), 490.56, atol=1e-2, rtol=0)
+
+    @skipif('nodevice')
+    @pytest.mark.parametrize('blocklevels', [0, 1])
+    def test_iso_acoustic(self, blocklevels):
+        TestOperator().iso_acoustic(opt=('advanced', {'blocklevels': blocklevels}))
 
 
 class TestMPI(object):
@@ -210,6 +214,7 @@ class TestMPI(object):
                                         [11., 16., 17., 17., 16., 11.]])
 
     @skipif('nodevice')
+    @pytest.mark.parametrize('blocklevels', [0, 1])
     @pytest.mark.parallel(mode=2)
-    def test_iso_ac(self):
-        TestOperator().test_iso_ac()
+    def test_mpi_iso_acoustic(self, blocklevels):
+        TestOperator().iso_acoustic(opt=('advanced', {'blocklevels': blocklevels}))
