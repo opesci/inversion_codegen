@@ -14,7 +14,7 @@ __all__ = ['collect_derivatives']
 def collect_derivatives(expressions):
     """
     Exploit linearity of finite-differences to collect `Derivative`'s of
-    same type. This may help CIRE by creating fewer temporaries and catching
+    same type. This may help CIRE creating fewer temporaries while catching
     larger redundant sub-expressions.
     """
     # E.g., 0.2*u.dx -> (0.2*u).dx
@@ -23,6 +23,8 @@ def collect_derivatives(expressions):
     # E.g., (0.2*u).dx + (0.3*v).dx -> (0.2*u + 0.3*v).dx
     processed = [_collect_derivatives(e) for e in expressions]
     processed = list(zip(*processed))[0]
+
+    #TODO: rollback if no collection? can aggregation worsen the op count otherwise?
 
     return processed
 
@@ -64,6 +66,8 @@ def _(expr):
 
 @_aggregate_coeffs.register(sympy.Derivative)
 def _(expr):
+    #TODO: expr.args -> just apply to expr.expr....
+    from IPython import embed; embed()
     result = [_aggregate_coeffs(a) for a in expr.args]
 
     args = [i.expr for i in result]
@@ -176,9 +180,10 @@ def _(expr, terms):
     if len(mapper) == len(derivs):
         return expr, Term(expr)
 
+    from IPython import embed; embed()
+
     processed = []
     for v in mapper.values():
-        from IPython import embed; embed()
         fact, nonfact = split(v, lambda i: _is_const_coeff(i.other, i.deriv))
         if fact:
             # Finally factorize derivative arguments
