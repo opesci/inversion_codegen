@@ -1,9 +1,10 @@
-from collections import namedtuple
+from collections import Counter, namedtuple
 from functools import singledispatch
 from itertools import product
 
 import sympy
 
+from devito.operations.solve import Solve
 from devito.symbolics import rebuild_if_untouched, q_leaf, q_function
 from devito.tools import as_mapper, flatten, split, timed_pass
 
@@ -17,38 +18,76 @@ def collect_derivatives(expressions):
     same type. This may help CIRE creating fewer temporaries while catching
     larger redundant sub-expressions.
     """
-    # E.g., 0.2*u.dx -> (0.2*u).dx
-    expressions = [_aggregate_coeffs(e).expr for e in expressions]
+    processed = []
+    for e in expressions:
+        # Track type and number of nested Derivatives
+        mapper = inspect(e)
 
-    # E.g., (0.2*u).dx + (0.3*v).dx -> (0.2*u + 0.3*v).dx
-    processed = [_collect_derivatives(e) for e in expressions]
-    processed = list(zip(*processed))[0]
+        # E.g., 0.2*u.dx -> (0.2*u).dx
+        ep = aggregate_coeffs(e, mapper).expr
 
-    #TODO: rollback if no collection? can aggregation worsen the op count otherwise?
+        # E.g., (0.2*u).dx + (0.3*v).dx -> (0.2*u + 0.3*v).dx
+        processed.append(factorize_derivatives(ep))
 
     return processed
 
 
+# subpass: inspect
+
+@singledispatch
+def inspect(expr):
+    mapper = {}
+    counter = Counter()
+    for a in expr.args:
+        m = inspect(a)
+        mapper.update(m)
+
+        try:
+            counter.update(m[a])
+        except KeyError:
+            pass
+
+    mapper[expr] = counter
+
+    return mapper
+
+
+@inspect.register(sympy.Number)
+@inspect.register(sympy.Symbol)
+@inspect.register(sympy.Function)
+def _(expr):
+    return {}
+
+
+@inspect.register(sympy.Derivative)
+def _(expr):
+    mapper = inspect(expr.expr)
+
+    # Nested derivatives would reset the counting
+    mapper[expr] = Counter([expr._metadata])
+    #TODO: SOMETHING ODD IN THE WAY INFO IS STORED... THE "OUTER CONTEXT"
+    # SOHULD BE VISIBLE INSIDE AGGREGATE_COEFF...
+
+    return mapper
+
+
 # subpass: aggregate_coeffs
 
-
-class Bunch(object):
-
-    def __init__(self, expr, derivs=None):
-        self.expr = expr
-        self.derivs = derivs or []
+Bunch = namedtuple('Bunch', 'expr derivs')
+Bunch.__new__.__defaults__ = (None, None)
 
 
 @singledispatch
-def _aggregate_coeffs(expr):
-    args = [_aggregate_coeffs(a).expr for a in expr.args]
-    return Bunch(rebuild_if_untouched(expr, args))
+def aggregate_coeffs(expr, mapper):
+    args = [aggregate_coeffs(a).expr for a in expr.args]
+    expr = rebuild_if_untouched(expr, args)
+
+    return Bunch(expr)
 
 
-@_aggregate_coeffs.register(sympy.Add)
+@aggregate_coeffs.register(sympy.Add)
 def _(expr):
-    result = [_aggregate_coeffs(a) for a in expr.args]
-
+    result = [aggregate_coeffs(a) for a in expr.args]
     args = [i.expr for i in result]
     expr = rebuild_if_untouched(expr, args, evaluate=True)
 
@@ -57,28 +96,25 @@ def _(expr):
     return Bunch(expr, derivs)
 
 
-@_aggregate_coeffs.register(sympy.Number)
-@_aggregate_coeffs.register(sympy.Symbol)
-@_aggregate_coeffs.register(sympy.Function)
+@aggregate_coeffs.register(sympy.Number)
+@aggregate_coeffs.register(sympy.Symbol)
+@aggregate_coeffs.register(sympy.Function)
 def _(expr):
     return Bunch(expr)
 
 
-@_aggregate_coeffs.register(sympy.Derivative)
+@aggregate_coeffs.register(sympy.Derivative)
 def _(expr):
-    #TODO: expr.args -> just apply to expr.expr....
-    from IPython import embed; embed()
-    result = [_aggregate_coeffs(a) for a in expr.args]
-
+    result = [aggregate_coeffs(a) for a in expr.args]
     args = [i.expr for i in result]
     expr = rebuild_if_untouched(expr, args)
 
     return Bunch(expr, [expr])
 
 
-@_aggregate_coeffs.register(sympy.Mul)
+@aggregate_coeffs.register(sympy.Mul)
 def _(expr):
-    result = [_aggregate_coeffs(a) for a in expr.args]
+    result = [aggregate_coeffs(a) for a in expr.args]
 
     hope_coeffs = []
     with_derivs = []
@@ -120,90 +156,47 @@ def _(expr):
 
 # subpass: collect_derivatives
 
-
-Term = namedtuple('Term', 'other deriv func')
-Term.__new__.__defaults__ = (None, None, None)
-
-# `D0(a) + D1(b) == D(a + b)` <=> `D0` and `D1`'s metadata match, i.e. they
-# are the same type of derivative
-key = lambda e: e._metadata
-
-
-def _collect_derivatives(expr):
-    try:
-        if q_function(expr) or q_leaf(expr):
-            # Do not waste time
-            return _collect_derivatives_handle(expr, [])
-    except AttributeError:
-        # E.g., `Injection`
-        return _collect_derivatives_handle(expr, [])
-    args = []
-    terms = []
-    for a in expr.args:
-        ax, term = _collect_derivatives(a)
-        args.append(ax)
-        terms.append(term)
-    expr = expr.func(*args, evaluate=False)
-    return _collect_derivatives_handle(expr, terms)
-
-
 @singledispatch
-def _collect_derivatives_handle(expr, terms):
-    return expr, Term(expr)
+def factorize_derivatives(expr):
+    return expr
 
 
-@_collect_derivatives_handle.register(sympy.Derivative)
-def _(expr, terms):
-    return expr, Term(sympy.S.One, expr)
+@factorize_derivatives.register(sympy.Number)
+@factorize_derivatives.register(sympy.Symbol)
+@factorize_derivatives.register(sympy.Function)
+def _(expr):
+    return expr
 
 
-@_collect_derivatives_handle.register(sympy.Mul)
-def _(expr, terms):
-    derivs, others = split(terms, lambda i: i.deriv is not None)
-    if len(derivs) == 1:
-        # Linear => propagate found Derivative upstream
-        deriv = derivs[0].deriv
-        other = expr.func(*[i.other for i in others])  # De-nest terms
-        return expr, Term(other, deriv, expr.func)
-    else:
-        return expr, Term(expr)
+@factorize_derivatives.register(sympy.Expr)
+@factorize_derivatives.register(Solve)
+def _(expr):
+    args = [factorize_derivatives(a) for a in expr.args]
+    expr = rebuild_if_untouched(expr, args)
+
+    return expr
 
 
-@_collect_derivatives_handle.register(sympy.Add)
-def _(expr, terms):
-    derivs, others = split(terms, lambda i: i.deriv is not None)
+@factorize_derivatives.register(sympy.Add)
+def _(expr):
+    derivs, others = split(expr.args, lambda a: isinstance(a, sympy.Derivative))
     if not derivs:
-        return expr, Term(expr)
+        return expr
 
     # Map by type of derivative
-    mapper = as_mapper(derivs, lambda i: key(i.deriv))
+    # Note: `D0(a) + D1(b) == D(a + b)` <=> `D0` and `D1`'s metadata match,
+    # i.e. they are the same type of derivative
+    mapper = as_mapper(derivs, lambda i: i._metadata)
     if len(mapper) == len(derivs):
-        return expr, Term(expr)
+        return expr
 
-    from IPython import embed; embed()
-
-    processed = []
+    args = list(others)
     for v in mapper.values():
-        fact, nonfact = split(v, lambda i: _is_const_coeff(i.other, i.deriv))
-        if fact:
-            # Finally factorize derivative arguments
-            func = fact[0].deriv._new_from_self
-            exprs = []
-            for i in fact:
-                if i.func:
-                    exprs.append(i.func(i.other, i.deriv.expr))
-                else:
-                    assert i.other == 1
-                    exprs.append(i.deriv.expr)
-            fact = [Term(func(expr=expr.func(*exprs)))]
+        c = v[0]
+        if len(v) == 1:
+            args.append(c)
+        else:
+            args.append(c._new_from_self(expr=expr.func(*[i.expr for i in v])))
+    expr = expr.func(*args)
 
-        for i in fact + nonfact:
-            if i.func:
-                processed.append(i.func(i.other, i.deriv))
-            else:
-                processed.append(i.other)
-
-    others = [i.other for i in others]
-    expr = expr.func(*(processed + others))
-
-    return expr, Term(expr)
+    return expr
