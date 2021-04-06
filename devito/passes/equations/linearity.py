@@ -30,45 +30,11 @@ def collect_derivatives(expressions):
 # subpass: aggregate_coeffs
 
 
-@singledispatch
-def _is_const_coeff(c, deriv):
-    """True if coefficient definitely constant w.r.t. derivative, False otherwise."""
-    return False
-
-
-@_is_const_coeff.register(sympy.Number)
-def _(c, deriv):
-    return True
-
-
-@_is_const_coeff.register(sympy.Symbol)
-def _(c, deriv):
-    try:
-        return c.is_const
-    except AttributeError:
-        # Retrocompatibility -- if a sympy.Symbol, there's no `is_const` to query
-        # We conservatively return False
-        return False
-
-
-@_is_const_coeff.register(sympy.Function)
-def _(c, deriv):
-    c_dims = set().union(*[getattr(i, '_defines', i) for i in c.free_symbols])
-    deriv_dims = set().union(*[d._defines for d in deriv.dims])
-    return not c_dims & deriv_dims
-
-
-@_is_const_coeff.register(sympy.Expr)
-def _(c, deriv):
-    return all(_is_const_coeff(a, deriv) for a in c.args)
-
-
 class Bunch(object):
 
-    def __init__(self, expr, derivs=None, dims=None):
+    def __init__(self, expr, derivs=None):
         self.expr = expr
         self.derivs = derivs or []
-        self.dims = dims or set()
 
 
 @singledispatch
@@ -85,20 +51,15 @@ def _(expr):
     expr = rebuild_if_untouched(expr, args, evaluate=True)
 
     derivs = flatten(i.derivs for i in result)
-    dims = set().union(*[i.dims for i in result])
 
-    return Bunch(expr, derivs, dims)
+    return Bunch(expr, derivs)
 
 
+@_aggregate_coeffs.register(sympy.Number)
+@_aggregate_coeffs.register(sympy.Symbol)
 @_aggregate_coeffs.register(sympy.Function)
 def _(expr):
-    dims = set()
-    for i in expr.free_symbols:
-        try:
-            dims.update(i._defines)
-        except AttributeError:
-            pass
-    return Bunch(expr, dims=dims)
+    return Bunch(expr)
 
 
 @_aggregate_coeffs.register(sympy.Derivative)
@@ -108,7 +69,7 @@ def _(expr):
     args = [i.expr for i in result]
     expr = rebuild_if_untouched(expr, args)
 
-    return Bunch(expr, [expr], result.dims)
+    return Bunch(expr, [expr])
 
 
 @_aggregate_coeffs.register(sympy.Mul)
@@ -131,11 +92,10 @@ def _(expr):
         return Bunch(expr)
     arg_deriv, derivs = with_derivs.pop(0)
 
-    #TODO: Improve: just carry around the seen dims and compute intersection with .dx...
-    cdims = set().union(*[i.dims for i in result])
-    ddims 
-    from IPython import embed; embed()
-    if not all(_is_const_coeff(i, v) for i, v in product(hope_coeffs, derivs)):
+    csymbols = set().union(*[i.free_symbols for i in hope_coeffs])
+    cdims = [i._defines for i in csymbols if i.is_Dimension]
+    ddims = [set(i.dims) for i in derivs]
+    if any(i & j for i, j in product(cdims, ddims)):
         return Bunch(expr)
 
     if len(derivs) == 1 and arg_deriv is derivs[0]:
@@ -151,7 +111,7 @@ def _(expr):
         expr = arg_deriv.func(*args, evaluate=False)
 
 
-    return Bunch(expr, dims=dims)
+    return Bunch(expr)
 
 
 # subpass: collect_derivatives
@@ -218,6 +178,7 @@ def _(expr, terms):
 
     processed = []
     for v in mapper.values():
+        from IPython import embed; embed()
         fact, nonfact = split(v, lambda i: _is_const_coeff(i.other, i.deriv))
         if fact:
             # Finally factorize derivative arguments

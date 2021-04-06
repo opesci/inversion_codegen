@@ -6,7 +6,7 @@ from devito import (Grid, TimeFunction, SparseTimeFunction, Function, Operator, 
 from devito.finite_differences import Derivative
 from devito.exceptions import InvalidOperator
 from devito.ir import FindSymbols, retrieve_iteration_tree
-from devito.passes.equations.linearity import collect_derivatives, _is_const_coeff
+from devito.passes.equations.linearity import collect_derivatives
 from devito.tools import timed_region
 
 
@@ -16,18 +16,6 @@ class TestCollectDerivatives(object):
     Test collect_derivatives and all mechanisms used by collect_derivatives
     indirectly.
     """
-
-    def test_is_const_coeff_time(self):
-        """
-        test that subdimension and parent are not misinterpreted as constants.
-        """
-        grid = Grid((10,))
-
-        f = TimeFunction(name="f", grid=grid, save=10)
-        g = TimeFunction(name="g", grid=grid)
-
-        assert not _is_const_coeff(g, f.dt)
-        assert not _is_const_coeff(f, g.dt)
 
     def test_nocollection_if_diff_dims(self):
         """
