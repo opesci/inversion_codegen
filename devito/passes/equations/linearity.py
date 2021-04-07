@@ -65,47 +65,55 @@ def _(expr):
 
     # Nested derivatives would reset the counting
     mapper[expr] = Counter([expr._metadata])
-    #TODO: SOMETHING ODD IN THE WAY INFO IS STORED... THE "OUTER CONTEXT"
-    # SOHULD BE VISIBLE INSIDE AGGREGATE_COEFF...
 
     return mapper
 
 
 # subpass: aggregate_coeffs
 
+# Note: in the recursion handlers below, `nn_derivs` stands for non-nested derivatives
+# Its purpose is that of tracking *all* derivatives within a Derivative-induced scope
+# For example, in `(...).dx`, the `.dx` derivative defines a new scope, and, in the
+# `(...)` recursion handler, `nn_derivs` will carry information about all non-nested
+# derivatives at any depth *inside* `(...)`
+
 Bunch = namedtuple('Bunch', 'expr derivs')
 Bunch.__new__.__defaults__ = (None, None)
 
 
 @singledispatch
-def aggregate_coeffs(expr, mapper):
-    args = [aggregate_coeffs(a).expr for a in expr.args]
+def aggregate_coeffs(expr, mapper, nn_derivs=None):
+    nn_derivs = nn_derivs or mapper.get(expr)
+
+    args = [aggregate_coeffs(a, mapper, nn_derivs).expr for a in expr.args]
     expr = rebuild_if_untouched(expr, args)
 
     return Bunch(expr)
 
 
+@aggregate_coeffs.register(sympy.Number)
+@aggregate_coeffs.register(sympy.Symbol)
+@aggregate_coeffs.register(sympy.Function)
+def _(expr, mapper, nn_derivs=None):
+    return Bunch(expr)
+
+
 @aggregate_coeffs.register(sympy.Add)
-def _(expr):
-    result = [aggregate_coeffs(a) for a in expr.args]
+def _(expr, mapper, nn_derivs=None):
+    nn_derivs = nn_derivs or mapper.get(expr)
+
+    result = [aggregate_coeffs(a, mapper, nn_derivs) for a in expr.args]
     args = [i.expr for i in result]
     expr = rebuild_if_untouched(expr, args, evaluate=True)
 
-    derivs = flatten(i.derivs for i in result)
+    derivs = flatten(i.derivs for i in result if i.derivs)
 
     return Bunch(expr, derivs)
 
 
-@aggregate_coeffs.register(sympy.Number)
-@aggregate_coeffs.register(sympy.Symbol)
-@aggregate_coeffs.register(sympy.Function)
-def _(expr):
-    return Bunch(expr)
-
-
 @aggregate_coeffs.register(sympy.Derivative)
-def _(expr):
-    result = [aggregate_coeffs(a) for a in expr.args]
+def _(expr, mapper, nn_derivs=None):
+    result = [aggregate_coeffs(a, mapper) for a in expr.args]
     args = [i.expr for i in result]
     expr = rebuild_if_untouched(expr, args)
 
@@ -113,8 +121,10 @@ def _(expr):
 
 
 @aggregate_coeffs.register(sympy.Mul)
-def _(expr):
-    result = [aggregate_coeffs(a) for a in expr.args]
+def _(expr, mapper, nn_derivs=None):
+    nn_derivs = nn_derivs or mapper.get(expr)
+
+    result = [aggregate_coeffs(a, mapper, nn_derivs) for a in expr.args]
 
     hope_coeffs = []
     with_derivs = []
@@ -132,6 +142,15 @@ def _(expr):
         return Bunch(expr)
     arg_deriv, derivs = with_derivs.pop(0)
 
+    # Aggregating the potential coefficient won't help if, in the current
+    # scope, at least one derivative type does not appear more than once.
+    # And, in fact, aggregation might even have a detrimental effect by
+    # increasing the operation count due to Mul expansion), so we rather
+    # give up w/ no structural changes to expr if that's the case
+    if not any(nn_derivs[i._metadata] > 1 for i in derivs):
+        return Bunch(expr)
+
+    # Is the potential coefficient really a coefficient?
     csymbols = set().union(*[i.free_symbols for i in hope_coeffs])
     cdims = [i._defines for i in csymbols if i.is_Dimension]
     ddims = [set(i.dims) for i in derivs]
@@ -149,7 +168,6 @@ def _(expr):
             else:
                 args.append(a)
         expr = arg_deriv.func(*args, evaluate=False)
-
 
     return Bunch(expr)
 

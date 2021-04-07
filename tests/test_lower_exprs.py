@@ -92,6 +92,21 @@ class TestCollectDerivatives(object):
         assert len(leq.rhs.expr.find(Derivative)) == 5
         assert len(leq.rhs.expr.args[1].find(Derivative)) == 3  # Check factorization
 
+    def test_nocollection_if_unworthy(self):
+        grid = Grid(shape=(10, 10))
+        dt = grid.time_dim.spacing
+
+        u = TimeFunction(name="u", grid=grid, space_order=4, time_order=2)
+        f = Function(name='f', grid=grid)
+
+        eq = Eq(u.forward, (0.4 + dt)*(u.dx + u.dy))
+        leq = collect_derivatives.func([eq])[0]
+
+        assert eq == leq
+
+    def test_pull_and_collect(self):
+        pass
+
 
 class TestBuffering(object):
 
