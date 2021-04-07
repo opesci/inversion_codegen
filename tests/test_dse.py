@@ -1401,7 +1401,7 @@ class TestAliases(object):
         assert len(arrays) == 2
         assert all(i._mem_heap and not i._mem_external for i in arrays)
 
-    def test_lazy_solve_implies_fewer_temps(self):
+    def test_lazy_solve_produces_larger_temps(self):
         """
         Test that after turning `solve` into a lazily evaluated object,
         larger temporaries are caught, thus minimising the operation count.
@@ -1409,9 +1409,8 @@ class TestAliases(object):
         grid = Grid(shape=(10, 10))
 
         u = TimeFunction(name="u", grid=grid, space_order=4, time_order=2)
-        f = TimeFunction(name="f", grid=grid, space_order=4)
 
-        pde = u.dt2 - (u.dx.dx + u.dy.dy) - u.dx.dy
+        pde = u.dt2 - (u.dx.dx + u.dy.dy) + u.dx.dy
         eq = Eq(u.forward, solve(pde, u.forward))
 
         op0 = Operator(eq)
@@ -1448,16 +1447,16 @@ class TestAliases(object):
 
         op0 = Operator(eq, opt=('advanced', {'openmp': False}))
         assert len([i for i in FindSymbols().visit(op0) if i.is_Array]) == 2
-        assert op0._profiler._sections['section1'].sops == 109
+        assert op0._profiler._sections['section1'].sops == 74
 
         op1 = Operator(eq, opt=('advanced', {'openmp': False, 'cire-maxalias': True}))
         assert len([i for i in FindSymbols().visit(op1) if i.is_Array]) == 4
-        assert op1._profiler._sections['section1'].sops == 94
+        assert op1._profiler._sections['section1'].sops == 64
 
         op2 = Operator(eq, opt=('advanced', {'openmp': False, 'cire-maxalias': True}),
                        subs={i: 0.5 for i in grid.spacing_symbols})
         assert len([i for i in FindSymbols().visit(op2) if i.is_Array]) == 2
-        assert op2._profiler._sections['section1'].sops == 57
+        assert op2._profiler._sections['section1'].sops == 44
 
     def test_hoisting_scalar_divs(self):
         """
