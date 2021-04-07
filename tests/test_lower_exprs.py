@@ -4,6 +4,7 @@ import numpy as np
 from devito import (Grid, TimeFunction, SparseTimeFunction, Function, Operator, Eq,
                     SubDimension, SubDomain, configuration, solve)
 from devito.finite_differences import Derivative
+from devito.finite_differences.differentiable import diff2sympy
 from devito.exceptions import InvalidOperator
 from devito.ir import FindSymbols, retrieve_iteration_tree
 from devito.passes.equations.linearity import collect_derivatives
@@ -82,7 +83,6 @@ class TestCollectDerivatives(object):
         grid = Grid(shape=(10, 10))
 
         u = TimeFunction(name="u", grid=grid, space_order=4, time_order=2)
-        f = TimeFunction(name="f", grid=grid, space_order=4)
 
         pde = u.dt2 - (u.dx.dx + u.dy.dy) - u.dx.dy
         eq = Eq(u.forward, solve(pde, u.forward))
@@ -96,8 +96,7 @@ class TestCollectDerivatives(object):
         grid = Grid(shape=(10, 10))
         dt = grid.time_dim.spacing
 
-        u = TimeFunction(name="u", grid=grid, space_order=4, time_order=2)
-        f = Function(name='f', grid=grid)
+        u = TimeFunction(name="u", grid=grid)
 
         eq = Eq(u.forward, (0.4 + dt)*(u.dx + u.dy))
         leq = collect_derivatives.func([eq])[0]
@@ -105,7 +104,48 @@ class TestCollectDerivatives(object):
         assert eq == leq
 
     def test_pull_and_collect(self):
-        pass
+        grid = Grid(shape=(10, 10))
+        dt = grid.time_dim.spacing
+        hx, _ = grid.spacing_symbols
+
+        u = TimeFunction(name="u", grid=grid)
+        v = TimeFunction(name="v", grid=grid)
+
+        eq = Eq(u.forward, ((0.4 + dt)*u.dx + 0.3)*hx + v.dx)
+        leq = collect_derivatives.func([eq])[0]
+
+        assert eq != leq
+        args = leq.rhs.args
+        assert len(args) == 2
+        assert diff2sympy(args[0]) == 0.3*hx
+        assert args[1] == (hx*(dt + 0.4)*u + v).dx
+
+    def test_pull_and_collect_nested(self):
+        grid = Grid(shape=(10, 10))
+        dt = grid.time_dim.spacing
+        hx, hy = grid.spacing_symbols
+
+        u = TimeFunction(name="u", grid=grid, space_order=2)
+        v = TimeFunction(name="v", grid=grid, space_order=2)
+
+        eq = Eq(u.forward, (((0.4 + dt)*u.dx + 0.3)*hx + v.dx).dy + (0.2 + hy)*v.dy)
+        leq = collect_derivatives.func([eq])[0]
+
+        assert eq != leq
+        assert leq.rhs == ((v + hx*(0.4 + dt)*u).dx + 0.3*hx + (0.2 + hy)*v).dy
+
+    def test_nocollection_subdims(self):
+        grid = Grid(shape=(10, 10))
+        xi, yi = grid.interior.dimensions
+
+        u = TimeFunction(name="u", grid=grid)
+        v = TimeFunction(name="v", grid=grid)
+        f = Function(name='f', grid=grid)
+
+        eq = Eq(u.forward, u.dx + 0.2*f[xi, yi]*v.dx)
+        leq = collect_derivatives.func([eq])[0]
+
+        assert eq == leq
 
 
 class TestBuffering(object):

@@ -5,7 +5,7 @@ from itertools import product
 import sympy
 
 from devito.operations.solve import Solve
-from devito.symbolics import rebuild_if_untouched, q_leaf, q_function
+from devito.symbolics import rebuild_if_untouched
 from devito.tools import as_mapper, flatten, split, timed_pass
 
 __all__ = ['collect_derivatives']
@@ -159,17 +159,14 @@ def _(expr, mapper, nn_derivs=None):
 
     if len(derivs) == 1 and arg_deriv is derivs[0]:
         expr = arg_deriv._new_from_self(expr=expr.func(*hope_coeffs, arg_deriv.expr))
+        derivs = [expr]
     else:
         assert arg_deriv.is_Add
-        args = []
-        for a in arg_deriv.args:
-            if a in derivs:
-                args.append(a._new_from_self(expr=expr.func(*hope_coeffs, a.expr)))
-            else:
-                args.append(a)
-        expr = arg_deriv.func(*args, evaluate=False)
+        others = [expr.func(*hope_coeffs, a) for a in arg_deriv.args if a not in derivs]
+        derivs = [a._new_from_self(expr=expr.func(*hope_coeffs, a.expr)) for a in derivs]
+        expr = arg_deriv.func(*(derivs + others), evaluate=False)
 
-    return Bunch(expr)
+    return Bunch(expr, derivs)
 
 
 # subpass: collect_derivatives
@@ -197,7 +194,9 @@ def _(expr):
 
 @factorize_derivatives.register(sympy.Add)
 def _(expr):
-    derivs, others = split(expr.args, lambda a: isinstance(a, sympy.Derivative))
+    args = [factorize_derivatives(a) for a in expr.args]
+
+    derivs, others = split(args, lambda a: isinstance(a, sympy.Derivative))
     if not derivs:
         return expr
 

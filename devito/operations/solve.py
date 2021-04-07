@@ -1,6 +1,7 @@
 import sympy
 from sympy.solvers.solveset import linear_coeffs
 
+from devito.logger import warning
 from devito.tools import as_tuple
 from devito.types import Eq, Evaluable
 
@@ -11,7 +12,7 @@ __all__ = ['solve']
 class Solve(Evaluable, sympy.Basic):  #TODO: inheriting from sympy.BAsic for sympify...
                                       # butmaybe there's a simpler way?
 
-    def __init__(self, expr, target, **kwargs): 
+    def __init__(self, expr, target, **kwargs):
         self.expr = expr
         self.target = target
         self.kwargs = kwargs
@@ -43,15 +44,15 @@ class Solve(Evaluable, sympy.Basic):  #TODO: inheriting from sympy.BAsic for sym
                 cc = linear_coeffs(e._eval_at(t).evaluate, t)
                 sols.append(-cc[1]/cc[0])
             except ValueError:
-                warning("Equation is not affine w.r.t the target, falling back to standard"
-                       "sympy.solve that may be slow")
+                warning("Equation is not affine w.r.t the target, falling back to "
+                        "standard sympy.solve that may be slow")
                 self.kwargs['rational'] = False  # Avoid float indices
                 self.kwargs['simplify'] = False  # Do not attempt premature optimisation
                 sols.append(sympy.solve(e.evaluate, t, **self.kwargs)[0])
 
         # We need to rebuild the vector/tensor as sympy.solve outputs a tuple of solutions
         if len(sols) > 1:
-            return target.new_from_mat(sols)
+            return self.target.new_from_mat(sols)
         else:
             return sols[0]
 
