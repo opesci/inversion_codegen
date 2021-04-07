@@ -142,11 +142,10 @@ def _(expr, mapper, nn_derivs=None):
         return Bunch(expr)
     arg_deriv, derivs = with_derivs.pop(0)
 
-    # Aggregating the potential coefficient won't help if, in the current
-    # scope, at least one derivative type does not appear more than once.
-    # And, in fact, aggregation might even have a detrimental effect by
-    # increasing the operation count due to Mul expansion), so we rather
-    # give up w/ no structural changes to expr if that's the case
+    # Aggregating the potential coefficient won't help if, in the current scope
+    # at least one derivative type does not appear more than once. In fact, aggregation
+    # might even have a detrimental effect due to increasing the operation count by
+    # expanding Muls), so we rather give if that's the case
     if not any(nn_derivs[i._metadata] > 1 for i in derivs):
         return Bunch(expr)
 
@@ -157,14 +156,20 @@ def _(expr, mapper, nn_derivs=None):
     if any(i & j for i, j in product(cdims, ddims)):
         return Bunch(expr)
 
+    # Redundancies won't stem along the time dimension, so we avoid expansion
+    # even in such a case
+    if any(d.is_Time for d in flatten(ddims)):
+        return Bunch(expr)
+
     if len(derivs) == 1 and arg_deriv is derivs[0]:
         expr = arg_deriv._new_from_self(expr=expr.func(*hope_coeffs, arg_deriv.expr))
         derivs = [expr]
     else:
+        #TODO: IMPROVE IMPLEMENTATION
         assert arg_deriv.is_Add
         others = [expr.func(*hope_coeffs, a) for a in arg_deriv.args if a not in derivs]
         derivs = [a._new_from_self(expr=expr.func(*hope_coeffs, a.expr)) for a in derivs]
-        expr = arg_deriv.func(*(derivs + others), evaluate=False)
+        expr = arg_deriv.func(*(derivs + others))
 
     return Bunch(expr, derivs)
 

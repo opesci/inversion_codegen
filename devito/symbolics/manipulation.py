@@ -301,7 +301,4 @@ def rebuild_if_untouched(expr, args, evaluate=False):
     if all(a is b for a, b in zip(expr.args, args)):
         return expr
     else:
-        try:
-            return expr.func(*args, evaluate=evaluate)
-        except:
-            from IPython import embed; embed()
+        return expr.func(*args, evaluate=evaluate)
