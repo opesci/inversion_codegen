@@ -1181,9 +1181,9 @@ class TestMashup(object):
         assert exprs[1].write is g
 
         exprs = FindNodes(Expression).visit(op._func_table['bf1'].root)
-        assert len(exprs) == 3
-        assert exprs[1].write is fsave
-        assert exprs[2].write is gsave
+        assert len(exprs) == 2
+        assert exprs[0].write is fsave
+        assert exprs[1].write is gsave
 
         exprs = FindNodes(Expression).visit(op._func_table['bf2'].root)
         assert len(exprs) == 1
@@ -1253,7 +1253,7 @@ class TestMashup(object):
         assert exprs[1].write is g
 
         exprs = FindNodes(Expression).visit(op._func_table['bf1'].root)
-        assert len(exprs) == 3
+        assert len(exprs) == 2
         assert exprs[1].write is fsave
         assert exprs[2].write is gsave
 
