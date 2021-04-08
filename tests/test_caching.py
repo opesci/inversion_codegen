@@ -738,7 +738,7 @@ class TestMemoryLeaks(object):
         u = TimeFunction(name='u', grid=grid, time_order=1, space_order=2)
 
         eqn = Eq(u.dt, u.dx2)
-        solve(eqn, u.forward)
+        solve(eqn, u.forward).evaluate
 
         del u
         del eqn
