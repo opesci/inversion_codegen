@@ -13,7 +13,7 @@ from devito.types.equation import Eq
 
 __all__ = ['xreplace_indices', 'pow_to_mul', 'as_symbol', 'indexify',
            'split_affine', 'subs_op_args', 'uxreplace', 'aligned_indices',
-           'Uxmapper']
+           'Uxmapper', 'rebuild_if_untouched']
 
 
 def uxreplace(expr, rule):
@@ -292,3 +292,13 @@ def subs_op_args(expr, args):
     which will be substituted into.
     """
     return expr.subs({i.name: args[i.name] for i in expr.free_symbols if i.name in args})
+
+
+def rebuild_if_untouched(expr, args, evaluate=False):
+    """
+    Reconstruct `expr` iff `args` does not match `expr.args`.
+    """
+    if all(a is b for a, b in zip(expr.args, args)):
+        return expr
+    else:
+        return expr.func(*args, evaluate=evaluate)
