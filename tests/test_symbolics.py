@@ -76,7 +76,7 @@ def test_solve(so):
 
     # Devito custom solve for linear equation in the target ax + b (most PDE tie steppers)
     t0 = time.time()
-    sol2 = solve(eq.evaluate, u.forward)
+    sol2 = solve(eq, u.forward).evaluate
     t12 = time.time() - t0
 
     diff = sympy.simplify(sol1 - sol2)
