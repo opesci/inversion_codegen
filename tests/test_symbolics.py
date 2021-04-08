@@ -81,7 +81,7 @@ def test_canonical_ordering(expr, expected):
 
 def test_solve_time():
     """
-    Tests that solves only evaluate the time derivative
+    Tests that solves only evaluate the time derivative.
     """
     grid = Grid(shape=(11, 11))
     u = TimeFunction(name="u", grid=grid, time_order=2, space_order=4)
