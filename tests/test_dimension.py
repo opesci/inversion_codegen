@@ -1217,7 +1217,7 @@ class TestMashup(object):
         # in the same loop nest with the fsave equation
         assert len(op._func_table) == 2
         assert len(FindNodes(Expression).visit(op._func_table['bf0'].root)) == 3
-        assert len(FindNodes(Expression).visit(op._func_table['bf1'].root)) == 2 + 1  # r0
+        assert len(FindNodes(Expression).visit(op._func_table['bf1'].root)) == 2
 
     def test_topofusion_w_subdims_conddims_v3(self):
         """
