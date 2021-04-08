@@ -1512,11 +1512,11 @@ class TestAliases(object):
 
         op0 = Operator(eq, opt=('advanced', {'openmp': False}))
         assert len([i for i in FindSymbols().visit(op0) if i.is_Array]) == 2
-        assert op0._profiler._sections['section1'].sops == 74
+        assert op0._profiler._sections['section1'].sops == 62
 
         op1 = Operator(eq, opt=('advanced', {'openmp': False, 'cire-maxalias': True}))
         assert len([i for i in FindSymbols().visit(op1) if i.is_Array]) == 4
-        assert op1._profiler._sections['section1'].sops == 64
+        assert op1._profiler._sections['section1'].sops == 58
 
         op2 = Operator(eq, opt=('advanced', {'openmp': False, 'cire-maxalias': True}),
                        subs={i: 0.5 for i in grid.spacing_symbols})
@@ -2275,8 +2275,8 @@ class TestTTI(object):
         assert np.allclose(self.tti_noopt[1].data, rec.data, atol=10e-1)
 
         # Check expected opcount/oi
-        assert summary[('section1', None)].ops == 91
-        assert np.isclose(summary[('section1', None)].oi, 1.524, atol=0.001)
+        assert summary[('section1', None)].ops == 86
+        assert np.isclose(summary[('section1', None)].oi, 1.359, atol=0.001)
 
         # With optimizations enabled, there should be exactly four IncrDimensions
         op = wavesolver.op_fwd()
