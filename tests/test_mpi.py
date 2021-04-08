@@ -856,8 +856,8 @@ class TestCodeGeneration(object):
         assert len(calls) == 1
 
         # Also make sure the Call is at the right place in the IET
-        assert op.body[-1].body[0].body[0].body[0].body[0].body[0].is_Call
-        assert op.body[-1].body[0].body[0].body[0].body[1].is_Iteration
+        assert op.body[-1].body[1].body[0].body[0].body[0].body[0].is_Call
+        assert op.body[-1].body[1].body[0].body[0].body[1].is_Iteration
 
     @pytest.mark.parallel(mode=2)
     def test_unhoist_haloupdate_if_invariant(self):
