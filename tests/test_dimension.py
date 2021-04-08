@@ -1227,7 +1227,7 @@ class TestMashup(object):
         grid = Grid(shape=(4, 4, 4))
         time = grid.time_dim
 
-        f = TimeFunction(name='f', grid=grid, time_order=2)
+        f = TimeFunction(name='f', grid=grid, time_order=2, space_order=4)
         g = TimeFunction(name='g', grid=grid, time_order=2)
         h = TimeFunction(name='h', grid=grid, time_order=2)
         fsave = TimeFunction(name='fsave', grid=grid, time_order=2, save=5)
@@ -1254,8 +1254,8 @@ class TestMashup(object):
 
         exprs = FindNodes(Expression).visit(op._func_table['bf1'].root)
         assert len(exprs) == 2
-        assert exprs[1].write is fsave
-        assert exprs[2].write is gsave
+        assert exprs[0].write is fsave
+        assert exprs[1].write is gsave
 
         exprs = FindNodes(Expression).visit(op._func_table['bf2'].root)
         assert len(exprs) == 2
