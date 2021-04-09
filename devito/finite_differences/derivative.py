@@ -84,7 +84,7 @@ class Derivative(sympy.Derivative, Differentiable):
     evaluation are `x0`, `fd_order` and `side`.
     """
 
-    _state = ('expr', 'dims', 'side', 'fd_order', 'transpose', '_subs', 'x0')
+    _state = ('expr', 'dims', 'side', 'fd_order', 'transpose', '_ppsubs', 'x0')
     _fd_priority = 3
 
     def __new__(cls, expr, *dims, **kwargs):
@@ -105,7 +105,7 @@ class Derivative(sympy.Derivative, Differentiable):
         obj._deriv_order = orders if skip else DimensionTuple(*orders, getters=obj._dims)
         obj._side = kwargs.get("side")
         obj._transpose = kwargs.get("transpose", direct)
-        obj._subs = as_tuple(frozendict(i) for i in kwargs.get("subs", []))
+        obj._ppsubs = as_tuple(frozendict(i) for i in kwargs.get("subs", []))
         obj._x0 = frozendict(kwargs.get('x0', {}))
         return obj
 
@@ -197,7 +197,7 @@ class Derivative(sympy.Derivative, Differentiable):
     def _new_from_self(self, **kwargs):
         expr = kwargs.pop('expr', self.expr)
         _kwargs = {'deriv_order': self.deriv_order, 'fd_order': self.fd_order,
-                   'side': self.side, 'transpose': self.transpose, 'subs': self._subs,
+                   'side': self.side, 'transpose': self.transpose, 'subs': self._ppsubs,
                    'x0': self.x0, 'preprocessed': True}
         _kwargs.update(**kwargs)
         return Derivative(expr, *self.dims, **_kwargs)
@@ -222,7 +222,7 @@ class Derivative(sympy.Derivative, Differentiable):
         This is a helper method used internally by SymPy. We exploit it to postpone
         substitutions until evaluation.
         """
-        subs = self._subs + (subs,)  # Postponed substitutions
+        subs = self._ppsubs + (subs,)  # Postponed substitutions
         return self._new_from_self(subs=subs), True
 
     @property
@@ -353,7 +353,7 @@ class Derivative(sympy.Derivative, Differentiable):
         res = res.evaluate
 
         # Step 4: Apply substitution
-        for e in self._subs:
+        for e in self._ppsubs:
             res = res.xreplace(e)
 
         # Step 5: Cast to EvaluatedDerivative
