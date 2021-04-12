@@ -199,10 +199,10 @@ class Derivative(sympy.Derivative, Differentiable):
         return self._new_from_self(fd_order=_fd_order, x0=_x0)
 
     def _new_from_self(self, **kwargs):
+        expr = kwargs.pop('expr', self.expr)
         _kwargs = {'deriv_order': self.deriv_order, 'fd_order': self.fd_order,
                    'side': self.side, 'transpose': self.transpose, 'subs': self._subs,
                    'x0': self.x0, 'preprocessed': True}
-        expr = diffify(kwargs.pop('expr', self.expr))
         _kwargs.update(**kwargs)
         return Derivative(expr, *self.dims, **_kwargs)
 
@@ -227,12 +227,7 @@ class Derivative(sympy.Derivative, Differentiable):
         substitutions until evaluation.
         """
         subs = self._subs + (subs,)  # Postponed substitutions
-        try:
-            return self._new_from_self(subs=subs), True
-        except (KeyError, AttributeError):
-            # This is the case during solve where subs is a sympy.core.rule
-            # that is not recognized by the constructor
-            return self, False
+        return self._new_from_self(subs=subs), True
 
     @property
     def _metadata(self):

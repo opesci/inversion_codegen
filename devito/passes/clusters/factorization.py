@@ -76,7 +76,7 @@ def collect_const(expr):
             # -> (a + c)
             add = Add(*v)
             # -> 3.*(a + c)
-            mul = Mul(k, add, evaluate=False)
+            mul = Mul(k, add, evaluate=False) if k != 1 else add
 
         terms.append(mul)
 

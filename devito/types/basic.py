@@ -867,7 +867,7 @@ class AbstractFunction(sympy.Function, Basic, Cached, Pickable, Evaluable):
         halo = [sympy.Add(*i, evaluate=False) for i in self._size_halo]
         padding = [sympy.Add(*i, evaluate=False) for i in self._size_padding]
         domain = [i.symbolic_size for i in self.dimensions]
-        ret = tuple(sympy.Add(i, j, k, evaluate=False)
+        ret = tuple(sympy.Add(i, j, k)
                     for i, j, k in zip(domain, halo, padding))
         return DimensionTuple(*ret, getters=self.dimensions)
 

@@ -1425,16 +1425,16 @@ class TestAliases(object):
 
         op0 = Operator(eq, opt=('advanced', {'openmp': False}))
         assert len([i for i in FindSymbols().visit(op0) if i.is_Array]) == 2
-        assert op0._profiler._sections['section1'].sops == 109
+        assert op0._profiler._sections['section1'].sops == 105
 
         op1 = Operator(eq, opt=('advanced', {'openmp': False, 'cire-maxalias': True}))
         assert len([i for i in FindSymbols().visit(op1) if i.is_Array]) == 4
-        assert op1._profiler._sections['section1'].sops == 94
+        assert op1._profiler._sections['section1'].sops == 107
 
         op2 = Operator(eq, opt=('advanced', {'openmp': False, 'cire-maxalias': True}),
                        subs={i: 0.5 for i in grid.spacing_symbols})
         assert len([i for i in FindSymbols().visit(op2) if i.is_Array]) == 2
-        assert op2._profiler._sections['section1'].sops == 57
+        assert op2._profiler._sections['section1'].sops == 84
 
     def test_hoisting_scalar_divs(self):
         """
@@ -1452,7 +1452,7 @@ class TestAliases(object):
         op0 = Operator(eq, opt=('advanced', {'openmp': False}))
         op1 = Operator(eq, platform='nvidiaX', language='openacc')
 
-        for op, ops, nexprs in [(op0, 30, 3), (op1, 26, 5)]:
+        for op, ops, nexprs in [(op0, 29, 3), (op1, 25, 5)]:
             assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 0
             assert op._profiler._sections['section0'].sops == ops
             exprs = FindNodes(Expression).visit(op)
