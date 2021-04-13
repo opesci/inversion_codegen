@@ -5,7 +5,7 @@ from sympy import simplify, diff, cos, sin, Float
 from devito import (Grid, Function, TimeFunction, Eq, Operator, NODE,
                     ConditionalDimension, left, right, centered, div, grad)
 from devito.finite_differences import Derivative, Differentiable
-from devito.finite_differences.differentiable import EvalDiffDerivative
+from devito.finite_differences.differentiable import EvalDerivative
 from devito.symbolics import indexify, retrieve_indexed
 
 _PRECISION = 9
@@ -195,7 +195,7 @@ class TestFD(object):
 
         s_expr = u.diff(dim).as_finite_difference(indices).evalf(_PRECISION)
         assert(simplify(expr - s_expr) == 0)  # Symbolic equality
-        assert type(expr) == EvalDiffDerivative
+        assert type(expr) == EvalDerivative
         expr1 = s_expr.func(*expr.args)
         assert(expr1 == s_expr)  # Exact equality
 
@@ -215,7 +215,7 @@ class TestFD(object):
         indices = [(dim + i * dim.spacing) for i in range(-width, width + 1)]
         s_expr = u.diff(dim, dim).as_finite_difference(indices).evalf(_PRECISION)
         assert(simplify(expr - s_expr) == 0)  # Symbolic equality
-        assert type(expr) == EvalDiffDerivative
+        assert type(expr) == EvalDerivative
         expr1 = s_expr.func(*expr.args)
         assert(expr1 == s_expr)  # Exact equality
 

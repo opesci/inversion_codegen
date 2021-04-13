@@ -2,8 +2,6 @@ from collections import OrderedDict
 from cached_property import cached_property
 
 import numpy as np
-from sympy import Dummy
-from sympy.core.decorators import call_highest_priority
 from sympy.core.sympify import converter as sympify_converter
 
 from devito.finite_differences import Differentiable
@@ -122,33 +120,6 @@ class TensorFunction(AbstractTensor):
             funcs = np.array(funcs) + np.triu(np.array(funcs), k=1).T
             funcs = funcs.tolist()
         return funcs
-
-    @call_highest_priority('__mul__')
-    def __rmul__(self, other):
-        """
-        Prevents Functions to be interpreted as matrices in 2D becaue of `.shape`
-        TODO: Remove after sympy 1.7
-        """
-        if getattr(other, 'is_DiscreteFunction', False):
-            tmp_func = Dummy(other.name)
-            simplemul = super(TensorFunction, self).__rmul__(tmp_func)
-            return simplemul.subs(tmp_func, other)
-        # honest sympy matrices defer to their class's routine
-        if getattr(other, 'is_Matrix', False):
-            return self._eval_matrix_rmul(other)
-        return super(TensorFunction, self).__rmul__(other)
-
-    @call_highest_priority('__rmul__')
-    def __mul__(self, other):
-        """
-        Prevents Functions to be interpreted as matrices in 2D becaue of `.shape`
-        TODO: Remove after sympy 1.7
-        """
-        if getattr(other, 'is_DiscreteFunction', False):
-            tmp_func = Dummy(other.name)
-            simplemul = super(TensorFunction, self).__mul__(tmp_func)
-            return simplemul.subs(tmp_func, other)
-        return super(TensorFunction, self).__mul__(other)
 
     def __getattr__(self, name):
         """

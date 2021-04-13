@@ -6,7 +6,7 @@ import sympy
 from devito.finite_differences.finite_difference import (generic_derivative,
                                                          first_derivative,
                                                          cross_derivative)
-from devito.finite_differences.differentiable import (Differentiable, EvalDiffDerivative,
+from devito.finite_differences.differentiable import (Differentiable, EvalDerivative,
                                                       diffify)
 from devito.finite_differences.tools import direct, transpose
 from devito.tools import as_mapper, as_tuple, filter_ordered, frozendict
@@ -334,7 +334,7 @@ class Derivative(sympy.Derivative, Differentiable):
         - 3: Evaluate remaining terms (as `g` may need to be evaluated
         at a different point).
         - 4: Apply substitutions.
-        - 5: Cast to an object of type `EvalDiffDerivative` so that we know
+        - 5: Cast to an object of type `EvalDerivative` so that we know
              the argument stems from a `Derivative. This may be useful for
              later compilation passes.
         """
@@ -362,6 +362,6 @@ class Derivative(sympy.Derivative, Differentiable):
 
         # Step 5: Cast to EvaluatedDerivative
         assert res.is_Add
-        res = EvalDiffDerivative(*res.args, evaluate=False)
+        res = EvalDerivative(*res.args, evaluate=False)
 
         return res

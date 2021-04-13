@@ -10,7 +10,7 @@ from cached_property import cached_property
 from devito.finite_differences.tools import make_shift_x0
 from devito.logger import warning
 from devito.tools import filter_ordered, flatten
-from devito.types.lazy import Evaluable, EvalDerivative
+from devito.types.lazy import Evaluable
 from devito.types.utils import DimensionTuple
 
 __all__ = ['Differentiable']
@@ -405,8 +405,8 @@ class Mod(DifferentiableOp, sympy.Mod):
     __new__ = DifferentiableOp.__new__
 
 
-class EvalDiffDerivative(DifferentiableOp, EvalDerivative):
-    __sympy_class__ = EvalDerivative
+class EvalDerivative(DifferentiableOp, sympy.Add):
+    __sympy_class__ = sympy.Add
     __new__ = DifferentiableOp.__new__
 
 
@@ -466,7 +466,7 @@ class diffify(object):
     @_cls.register(Mul)
     @_cls.register(Pow)
     @_cls.register(Mod)
-    @_cls.register(EvalDiffDerivative)
+    @_cls.register(EvalDerivative)
     def _(obj):
         return obj.__class__
 
