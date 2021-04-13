@@ -1663,7 +1663,7 @@ class TestAliases(object):
 
         # Operator
         op0 = Operator(eqns, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqns, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
+        op1 = Operator(eqns, opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                                'cire-rotate': rotate}))
 
         # Check numerical output
@@ -1725,7 +1725,7 @@ class TestAliases(object):
 
         op0 = Operator(eqn, subs=grid.spacing_map, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, subs=grid.spacing_map,
-                       opt=('advanced', {'openmp': True, 'cire-mingain': 0,
+                       opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                          'cire-rotate': rotate}))
 
         # Check numerical output
@@ -2133,7 +2133,7 @@ class TestAliases(object):
         eqn = Eq(u.forward, (2*f*f*u.dy).dy + (3*f*u.dy).dy)
 
         op = Operator(eqn, opt=('advanced', {'openmp': False, 'cire-maxalias': True,
-                                             'cire-mingain': 7}))
+                                             'cire-mingain': 4}))
 
         arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
         assert len(arrays) == 1
