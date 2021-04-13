@@ -2214,8 +2214,8 @@ class TestIsoAcoustic(object):
         assert summary0[('section1', None)].ops == 151
         assert np.isclose(summary0[('section0', None)].oi, 2.851, atol=0.001)
 
-        assert summary1[('section0', None)].ops == 33
-        assert np.isclose(summary1[('section0', None)].oi, 1.882, atol=0.001)
+        assert summary1[('section0', None)].ops == 31
+        assert np.isclose(summary1[('section0', None)].oi, 1.767, atol=0.001)
 
         assert np.allclose(u0.data, u1.data, atol=10e-5)
         assert np.allclose(rec0.data, rec1.data, atol=10e-5)
@@ -2275,8 +2275,8 @@ class TestTTI(object):
         assert np.allclose(self.tti_noopt[1].data, rec.data, atol=10e-1)
 
         # Check expected opcount/oi
-        assert summary[('section1', None)].ops == 86
-        assert np.isclose(summary[('section1', None)].oi, 1.359, atol=0.001)
+        assert summary[('section1', None)].ops == 90
+        assert np.isclose(summary[('section1', None)].oi, 1.508, atol=0.001)
 
         # With optimizations enabled, there should be exactly four IncrDimensions
         op = wavesolver.op_fwd()
