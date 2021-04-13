@@ -582,7 +582,10 @@ def collect(extracted, ispace, minstorage, mingain):
             # Compute the alias score. With a score of 0, the alias is discarded
             na = len(aliaseds)
             nr = nredundants(ispace, pivot)
-            score = estimate_cost(pivot, True)*((na - 1) + nr) // mingain
+            try:
+                score = estimate_cost(pivot, True)*((na - 1) + nr) // mingain
+            except ZeroDivisionError:
+                score = np.inf
             if score > 0:
                 aliases.add(pivot, aliaseds, list(mapper), distances, score)
 
@@ -609,8 +612,8 @@ def choose(aliases, exprs, mapper):
     # count reduction and working set size increase
     owset = wset(templated)
     key = lambda a: \
-        a.score > 1 or \
-        a.score == 1 and max(len(wset(a.pivot)), 1) > len(wset(a.pivot) & owset)
+        a.score > 2 or \
+        1 <= a.score <= 2 and max(len(wset(a.pivot)), 1) > len(wset(a.pivot) & owset)
     aliases.filter(key)
 
     if not aliases:
