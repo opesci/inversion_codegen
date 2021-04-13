@@ -2322,7 +2322,7 @@ class TestTTI(object):
 
     @switchconfig(profiling='advanced')
     @pytest.mark.parametrize('space_order,expected', [
-        (8, 148), (16, 266)
+        (8, 152), (16, 270)
     ])
     def test_opcounts(self, space_order, expected):
         op = self.tti_operator(opt='advanced', space_order=space_order)
