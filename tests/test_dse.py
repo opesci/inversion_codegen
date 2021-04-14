@@ -2153,6 +2153,29 @@ class TestAliases(object):
         assert len(FindNodes(Conditional).visit(op)) == 1
         assert np.all(u.data[6:] == 1.42)
 
+    def test_collection_from_conditional(self):
+        nt = 10
+        grid = Grid(shape=(10, 10))
+        time_dim = grid.time_dim
+
+        factor = Constant(name='factor', value=2, dtype=np.int32)
+        time_sub = ConditionalDimension(name="time_sub", parent=time_dim, factor=factor)
+        save_shift = Constant(name='save_shift', dtype=np.int32)
+
+        u = TimeFunction(name='u', grid=grid, space_order=4)
+        v = TimeFunction(name='v', grid=grid, space_order=4)
+        usave = TimeFunction(name='usave', grid=grid, time_order=0,
+                             save=int(nt//factor.data), time_dim=time_sub)
+        vsave = TimeFunction(name='vsave', grid=grid, time_order=0,
+                             save=int(nt//factor.data), time_dim=time_sub)
+
+        uss = usave.subs(time_sub, time_sub - save_shift)
+        vss = vsave.subs(time_sub, time_sub - save_shift)
+
+        eqn = Eq(u.forward, uss*u.dx.dx + vss*v.dy.dy)
+        op = Operator(eqn, opt=('advanced', {'cire-mingain': 1}))
+        assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 2
+
     def test_hoisting_pow_one(self):
         """
         MFE for issues #1614.
