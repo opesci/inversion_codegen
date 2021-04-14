@@ -47,3 +47,17 @@ class Evaluable(object):
         args = self._evaluate_args()
         evaluate = not all(i is j for i, j in zip(args, self.args))
         return self.func(*args, evaluate=evaluate)
+
+
+def eval_t(expr):
+    """
+    Evaluate all time derivatives in the expression
+    """
+    try:
+        assert any(d.is_Time for d in expr.dims)
+        return expr.evaluate
+    except:
+        try:
+            return expr.func(*[eval_t(a) for a in expr.args])
+        except:
+            return expr

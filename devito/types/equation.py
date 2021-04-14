@@ -7,7 +7,7 @@ from cached_property import cached_property
 from devito.finite_differences import default_rules
 from devito.logger import warning
 from devito.tools import as_tuple
-from devito.types.lazy import Evaluable
+from devito.types.lazy import Evaluable, eval_t
 
 __all__ = ['Eq', 'Inc', 'solve']
 
@@ -235,15 +235,15 @@ def solve(eq, target, **kwargs):
         Symbolic optimizations applied while rearranging the equation. For more
         information. refer to ``sympy.solve.__doc__``.
     """
+    from devito.operations.solve import linsolve, SolveError
     if isinstance(eq, Eq):
         eq = eq.lhs - eq.rhs if eq.rhs != 0 else eq.lhs
     sols = []
     for e, t in zip(as_tuple(eq), as_tuple(target)):
         # Try first linear solver
         try:
-            sol = list(sympy.linsolve([eval_t(e)], [t]))
-            sols.append(sol[0][0])
-        except ValueError:
+            sols.append(linsolve(eval_t(e), t))
+        except SolveError:
             warning("Equation is not affine w.r.t the target, falling back to standard"
                     "sympy.solve that may be slow")
             kwargs['rational'] = False  # Avoid float indices
@@ -254,17 +254,3 @@ def solve(eq, target, **kwargs):
         return target.new_from_mat(sols)
     else:
         return sols[0]
-
-
-def eval_t(expr):
-    """
-    Evaluate all time derivatives in the expression
-    """
-    try:
-        assert any(d.is_Time for d in expr.dims)
-        return expr.evaluate
-    except:
-        try:
-            return expr.func(*[eval_t(a) for a in expr.args])
-        except:
-            return expr

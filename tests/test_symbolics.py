@@ -1,9 +1,8 @@
 import sympy
-import time
 import pytest
 import numpy as np
 
-from devito import Grid, Function, solve, div, grad, TimeFunction, Eq, Operator
+from devito import Grid, Function, solve, TimeFunction, Eq, Operator
 from devito.ir import Expression, FindNodes
 from devito.symbolics import retrieve_functions, retrieve_indexed
 
@@ -58,36 +57,6 @@ def test_is_on_grid():
     assert all(uu._is_on_grid for uu in retrieve_functions(u.subs({x: x0}).evaluate))
 
 
-@pytest.mark.parametrize('so', [2, 4])
-def test_solve(so):
-    """
-    Test that our solve produces the correct output and faster than sympy's
-    default behavior for an affine equation (i.e. PDE time steppers).
-    """
-    grid = Grid((10, 10, 10))
-    u = TimeFunction(name="u", grid=grid, time_order=2, space_order=so)
-    v = Function(name="v", grid=grid, space_order=so)
-    eq = u.dt2 - div(v * grad(u))
-
-    # Standard sympy solve
-    t0 = time.time()
-    sol1 = sympy.solve(eq.evaluate, u.forward, rational=False, simplify=False)[0]
-    t1 = time.time() - t0
-
-    # Devito custom solve for linear equation in the target ax + b (most PDE tie steppers)
-    t0 = time.time()
-    sol2 = solve(eq.evaluate, u.forward)
-    t12 = time.time() - t0
-
-    diff = sympy.simplify(sol1 - sol2)
-    # Difference can end up with super small coeffs with different evaluation
-    # so zero out everything very small
-    assert diff.xreplace({k: 0 if abs(k) < 1e-10 else k
-                          for k in diff.atoms(sympy.Float)}) == 0
-    # Make sure faster (actually much more than 10 for very complex cases)
-    assert t12 < t1/10
-
-
 @pytest.mark.parametrize('expr,expected', [
     ('f[x+2]*g[x+4] + f[x+3]*g[x+5] + f[x+4] + f[x+1]',
      ['f[x+2]', 'g[x+4]', 'f[x+3]', 'g[x+5]', 'f[x+1]', 'f[x+4]']),
@@ -122,5 +91,6 @@ def test_solve_time():
     sol = solve(eq, u.forward)
     # Check u.dx is not evaluated. Need to simplify because the solution
     # contains some Dummy in the Derivatibe subs that make equality break.
-    assert sympy.simplify(u.dx - sol.args[2].args[3]) == 0
+    # TODO: replace by retreive_derivatives after Fabio's PR
+    assert sympy.simplify(u.dx - sol.args[2].args[0].args[1]) == 0
     assert sympy.simplify(sol - (-dt**2*u.dx/m + 2.0*u - u.backward)) == 0

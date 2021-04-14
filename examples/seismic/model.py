@@ -1,8 +1,8 @@
 import numpy as np
-from sympy import sin, Abs, finite_diff_weights as fd_w
+from sympy import Abs, finite_diff_weights as fd_w
 
 from devito import (Grid, SubDomain, Function, Constant, warning,
-                    SubDimension, Eq, Inc, Operator, div)
+                    SubDimension, Eq, Inc, Operator, div, sin)
 from devito.builtins import initialize_function, gaussian_smooth, mmax, mmin
 from devito.tools import as_tuple
 

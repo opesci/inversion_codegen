@@ -91,7 +91,7 @@ class Derivative(sympy.Derivative, Differentiable):
         if type(expr) == sympy.Derivative:
             raise ValueError("Cannot nest sympy.Derivative with devito.Derivative")
         if not isinstance(expr, Differentiable):
-            raise ValueError("`expr` must bes a Differentiable object")
+            raise ValueError("`expr` must be a Differentiable object")
 
         new_dims, orders, fd_o, var_count = cls._process_kwargs(expr, *dims, **kwargs)
 

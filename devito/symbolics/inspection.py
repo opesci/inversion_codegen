@@ -1,10 +1,9 @@
 from collections import Counter
 
-from sympy import cos, sin, exp, log
-
+from devito.logger import warning
+from devito.finite_differences.elementary import cos, sin, exp, log
 from devito.symbolics.queries import q_routine
 from devito.symbolics.search import retrieve_terminals, retrieve_xops, search
-from devito.logger import warning
 from devito.tools import as_tuple, flatten
 
 __all__ = ['compare_ops', 'count', 'estimate_cost']

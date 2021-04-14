@@ -339,7 +339,7 @@ class InlineIf(sympy.Expr, Pickable):
     """
 
     def __new__(cls, cond, true_expr, false_expr):
-        if not isinstance(cond, sympy.relational.Relational):
+        if not isinstance(cond, sympy.core.relational.Relational):
             raise ValueError("`cond` must be of type sympy.relational.Relational")
         if not isinstance(true_expr, sympy.Expr):
             raise ValueError("`true_expr` must be of type sympy.Expr")
