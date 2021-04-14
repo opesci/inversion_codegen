@@ -117,6 +117,7 @@ def test_mixed_blocking_nthreads():
     op = Operator(Eq(f.forward, f + 1.), openmp=True)
     op.apply(time=100, autotune=True)
 
+    # import pdb;pdb.set_trace()
     assert op._state['autotuning'][0]['runs'] == 6
     assert op._state['autotuning'][0]['tpr'] == options['squeezer'] + 1
     assert len(op._state['autotuning'][0]['tuned']) == 3

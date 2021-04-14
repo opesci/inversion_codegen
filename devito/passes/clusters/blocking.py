@@ -1,12 +1,14 @@
 from collections import Counter
-
 from devito.ir.clusters import Queue
 from devito.ir.support import (SEQUENTIAL, SKEWABLE, TILABLE, Interval, IntervalGroup,
                                IterationSpace)
 from devito.symbolics import uxreplace
 from devito.types import IncrDimension
+from devito.types.relational import Max
 
 from devito.symbolics import xreplace_indices
+
+import sympy
 
 __all__ = ['blocking']
 
@@ -115,6 +117,7 @@ class Blocking(Queue):
         # Make sure to use unique IncrDimensions
         self.nblocked[d] += int(any(TILABLE in c.properties[d] for c in clusters))
 
+
         return processed
 
 
@@ -153,6 +156,8 @@ def decompose(ispace, d, block_dims):
             intervals.extend([i.switch(bd).zero() for bd in block_dims[1:]])
         else:
             intervals.append(i)
+
+
 
     # Create the relations.
     # Example: consider the relation `(t, x, y)` and assume we decompose `x` over
@@ -196,6 +201,7 @@ def decompose(ispace, d, block_dims):
     directions = dict(ispace.directions)
     directions.pop(d)
     directions.update({bd: ispace.directions[d] for bd in block_dims})
+
 
     return IterationSpace(intervals, sub_iterators, directions)
 

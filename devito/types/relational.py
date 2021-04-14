@@ -5,6 +5,94 @@ import sympy
 __all__ = ['Le', 'Lt', 'Ge', 'Gt', 'Ne']
 
 
+
+class Max(sympy.Max):
+    """
+    A less-than or equal ("<=") relation between two objects, the left-hand side and the
+    right-hand side. It can be used to build conditionals but not directly to
+    construct an Operator.
+
+    Parameters
+    ----------
+    lhs : expr-like
+        The left-hand side.
+    rhs : expr-like, optional
+        The right-hand side. Defaults to 0.
+    subdomain : SubDomain, optional
+        To restrict the evalaution of the relation to a particular sub-region in the
+        computational domain.
+
+    Examples
+    --------
+    `Le` may be used to express a relation (e.g. in a Subdomain).
+
+    >>> from devito import Grid, Function, ConditionalDimension, Eq, Operator, Le
+    >>> grid = Grid(shape=(8, 8))
+    >>> g = Function(name='g', grid=grid)
+    >>> Le(g, 1)
+    g(x, y) <= 1
+    """
+
+    is_Elementary = True
+
+    def __new__(cls, lhs, rhs=0, subdomain=None, **kwargs):
+        kwargs.update({'evaluate': False})
+        obj = sympy.Max.__new__(cls, lhs, rhs, evaluate=False)
+        obj._subdomain = subdomain
+        return obj
+
+    @property
+    def subdomain(self):
+        """The SubDomain in which Max is defined."""
+        return self._subdomain
+
+    @property
+    def negated(self):
+        return ops.get(self.func)(*self.args)
+
+class Min(sympy.Min):
+    """
+    A less-than or equal ("<=") relation between two objects, the left-hand side and the
+    right-hand side. It can be used to build conditionals but not directly to
+    construct an Operator.
+
+    Parameters
+    ----------
+    lhs : expr-like
+        The left-hand side.
+    rhs : expr-like, optional
+        The right-hand side. Defaults to 0.
+    subdomain : SubDomain, optional
+        To restrict the evalaution of the relation to a particular sub-region in the
+        computational domain.
+
+    Examples
+    --------
+    `Le` may be used to express a relation (e.g. in a Subdomain).
+
+    >>> from devito import Grid, Function, ConditionalDimension, Eq, Operator, Le
+    >>> grid = Grid(shape=(8, 8))
+    >>> g = Function(name='g', grid=grid)
+    >>> Le(g, 1)
+    g(x, y) <= 1
+    """
+
+    def __new__(cls, lhs, rhs=0, subdomain=None, **kwargs):
+        kwargs.update({'evaluate': False})
+        obj = sympy.Min.__new__(cls, lhs, rhs, **kwargs)
+        obj._subdomain = subdomain
+        return obj
+
+    @property
+    def subdomain(self):
+        """The SubDomain in which Max is defined."""
+        return self._subdomain
+
+    @property
+    def negated(self):
+        return ops.get(self.func)(*self.args)
+
+
 class Le(sympy.Le):
     """
     A less-than or equal ("<=") relation between two objects, the left-hand side and the
@@ -227,4 +315,4 @@ class Ne(sympy.Ne):
         return self._subdomain
 
 
-ops = {Ge: Lt, Gt: Le, Le: Gt, Lt: Ge}
+ops = {Ge: Lt, Gt: Le, Le: Gt, Lt: Ge, Max: Min, Min: Max}

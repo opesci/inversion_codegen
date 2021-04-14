@@ -88,6 +88,7 @@ def autotune(operator, args, level, mode):
     at_args.update(timer._arg_values())
 
     # Perform autotuning
+    # import pdb;pdb.set_trace()
     timings = {}
     for n, tree in enumerate(trees):
         blockable = [i.dim for i in tree if not is_integer(i.step)]

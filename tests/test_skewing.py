@@ -27,7 +27,7 @@ class TestCodeGenSkewing(object):
         v = TimeFunction(name='v', grid=grid)  # noqa
         eqn = eval(expr)
         # List comprehension would need explicit locals/globals mappings to eval
-        op = Operator(eqn, opt=('blocking', {'skewing': True}))
+        op = Operator(eqn, opt=('blocking', {'skewing': False}))
         op.apply(time_M=5)
         iters = FindNodes(Iteration).visit(op)
         time_iter = [i for i in iters if i.dim.is_Time]

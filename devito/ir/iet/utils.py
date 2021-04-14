@@ -20,7 +20,7 @@ def retrieve_iteration_tree(node, mode='normal'):
            Iteration i
              expr0
              Iteration j
-               Iteraion k
+               Iteration k
                  expr1
              Iteration p
                expr2
@@ -67,7 +67,16 @@ def filter_iterations(tree, key=lambda i: i):
 
 
 def compose_nodes(nodes, retrieve=False):
-    """Build an IET by nesting ``nodes``."""
+    """
+    Build an IET by nesting ``nodes``.
+    
+    Parameters
+    ----------
+    nodes : A list of nodes
+        Input nodes to be nested.
+    retrieve : 
+    
+    """
     l = list(nodes)
     tree = []
 

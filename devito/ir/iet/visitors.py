@@ -747,7 +747,7 @@ class IsPerfectIteration(Visitor):
 class Transformer(Visitor):
 
     """
-    Given an Iteration/Expression tree T and a mapper from nodes in T to
+    Given an Iteration/Expression tree T and a mapper M from nodes in T to
     a set of new nodes L, M : N --> L, build a new Iteration/Expression tree T'
     where a node ``n`` in N is replaced with ``M[n]``.
 

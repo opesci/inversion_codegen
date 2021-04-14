@@ -81,8 +81,8 @@ def test_composite_transformation(shape):
 
 
 @pytest.mark.parametrize("blockinner,exp_calls,exp_iters", [
-    (False, 4, 5),
-    (True, 8, 6)
+    (False, 0, 1),
+    (True, 0, 6)
 ])
 def test_cache_blocking_structure(blockinner, exp_calls, exp_iters):
     # Check code structure
@@ -91,8 +91,8 @@ def test_cache_blocking_structure(blockinner, exp_calls, exp_iters):
                                              'par-collapse-ncores': 1}))
     calls = FindNodes(Call).visit(op)
     assert len(calls) == exp_calls
-    trees = retrieve_iteration_tree(op._func_table['bf0'].root)
-    assert len(trees) == 1
+    trees = retrieve_iteration_tree(op)
+    assert len(trees) == 2
     tree = trees[0]
     assert len(tree) == exp_iters
     if blockinner:
@@ -106,15 +106,17 @@ def test_cache_blocking_structure(blockinner, exp_calls, exp_iters):
                            opt=('blocking', {'openmp': True,
                                              'blockinner': blockinner,
                                              'par-collapse-ncores': 1}))
-    trees = retrieve_iteration_tree(op._func_table['bf0'].root)
-    assert len(trees) == 1
-    tree = trees[0]
-    assert len(tree.root.pragmas) == 1
-    assert 'omp for' in tree.root.pragmas[0].value
+    trees = retrieve_iteration_tree(op)
+    assert len(trees) == 2
+    tree = trees[1]
+    assert len(tree.root.pragmas) == 0
+    assert 'omp for' in trees[1][1].pragmas[0].value
     # Also, with omp parallelism enabled, the step increment must be != 0
     # to avoid omp segfaults at scheduling time (only certain omp implementations,
     # including Intel's)
-    conditionals = FindNodes(Conditional).visit(op._func_table['bf0'].root)
+    conditionals = FindNodes(Conditional).visit(op)
+    import pdb;pdb.set_trace()
+
     assert len(conditionals) == 1
     conds = conditionals[0].condition.args
     expected_guarded = tree[:2+blockinner]

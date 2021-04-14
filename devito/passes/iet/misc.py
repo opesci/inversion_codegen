@@ -4,10 +4,15 @@ import cgen
 
 from devito.ir.iet import (Expression, List, Prodder, FindNodes, FindSymbols,
                            Transformer, make_efunc, compose_nodes, filter_iterations,
-                           retrieve_iteration_tree)
+                           retrieve_iteration_tree, Section)
+from devito.ir.equations import DummyEq
 from devito.passes.iet.engine import iet_pass
+from devito.symbolics import INT
 from devito.tools import flatten, is_integer, split
 from devito.logger import warning
+from sympy import Min, Max
+from devito.types import Scalar, Symbol
+import numpy as np
 
 __all__ = ['avoid_denormals', 'hoist_prodders', 'relax_incr_dimensions', 'is_on_device']
 
@@ -66,7 +71,9 @@ def relax_incr_dimensions(iet, **kwargs):
 
     efuncs = []
     mapper = {}
+    #import pdb;pdb.set_trace()
     for tree in retrieve_iteration_tree(iet):
+
         iterations = [i for i in tree if i.dim.is_Incr]
         if not iterations:
             continue
@@ -86,36 +93,58 @@ def relax_incr_dimensions(iet, **kwargs):
 
         # Remove any offsets
         # E.g., `x = x_m + 2 to x_M - 2` --> `x = x_m to x_M`
-        outer = [i._rebuild(limits=(i.dim.root.symbolic_min, i.dim.root.symbolic_max,
+        new_outer = [i._rebuild(limits=(i.dim.root.symbolic_min, i.dim.root.symbolic_max,
                                     i.step))
                  for i in outer]
 
-        # Create the ElementalFunction
-        name = sregistry.make_name(prefix="bf")
-        body = compose_nodes(outer)
-        dynamic_parameters = flatten((i.symbolic_bounds, i.step) for i in outer)
-        dynamic_parameters.extend([i.step for i in inner if not is_integer(i.step)])
-        efunc = make_efunc(name, body, dynamic_parameters)
 
-        efuncs.append(efunc)
+#[((x_m, x_M - Mod(x_M - x_m + 1, x0_blk0_size), x0_blk0_size), (x_M - Mod(x_M - x_m + 1, x0_blk0_size) + 1, x_M, Mod(x_M - x_m + 1, x0_blk0_size))), ((y_m, y_M - Mod(y_M - y_m + 1, y0_blk0_size), y0_blk0_size), (y_M - Mod(y_M - y_m + 1, y0_blk0_size) + 1, y_M, Mod(y_M - y_m + 1, y0_blk0_size)))]
 
-        # Create the ElementalCalls
-        calls = []
-        for p in product(*ranges):
-            dynamic_args_mapper = {}
-            for i, (m, M, b) in zip(outer, p):
-                dynamic_args_mapper[i.symbolic_min] = m
-                dynamic_args_mapper[i.symbolic_max] = M
-                dynamic_args_mapper[i.step] = b
-                for j in inner:
-                    if j.dim.root is i.dim.root and not is_integer(j.step):
-                        value = j.step if b is i.step else b
-                        dynamic_args_mapper[j.step] = (value,)
-            calls.append(efunc.make_call(dynamic_args_mapper))
+        new_body = compose_nodes(outer)
+        #inner[0].dim.root.symbolic_max + inner[0].symbolic_size - inner[0].symbolic_max + inner[0].symbolic_min
 
-        mapper[root] = List(body=calls)
 
-    iet = Transformer(mapper).visit(iet)
+# if - i.dim.symbolic_max + i.dim.symbolic_size + i.dim.symbolic_min > 1
+# b1+1
+# i.dim.symbolic_max - i.symbolic_min > i.dim.symbolic_size
+
+        nodes1 = []
+        nodes2 = []
+        for i in inner:
+            
+            # import pdb;pdb.set_trace()
+            offset = i.symbolic_size - i.symbolic_max + i.symbolic_min
+            b0a = i.dim.parent.symbolic_max + i.symbolic_max - i.dim.parent.step - i.dim.symbolic_min + offset
+
+            b0b = i.dim.parent.symbolic_max
+            b1 = Max( b0a, b0b)
+
+            ub = INT(Min(i.symbolic_max, b1))
+            #inner_start = Symbol(name="%s_lb" % i.dim.name, dtype=np.int32)
+            #lb_expr = Expression(DummyEq(inner_start, lb))
+            new_inner = i._rebuild(limits=(i.symbolic_min, ub, i.step))
+            #nodes1.append(lb_expr)
+            nodes2.append(new_inner)
+
+
+        # nodes1body = compose_nodes(nodes1)
+
+        root = inner[0]
+        #expr_body = compose_nodes(nodes1)
+        inner_body = compose_nodes(nodes2)
+        #nodes1.append(inner_body)
+
+
+
+        test_1 = List(body= inner_body)
+        mapper[root] = test_1
+
+        # import pdb;pdb.set_trace()        
+
+
+    #import pdb;pdb.set_trace()
+
+    iet = Transformer(mapper, nested=True).visit(iet)
 
     return iet, {'efuncs': efuncs}
 
