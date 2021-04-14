@@ -363,12 +363,10 @@ class DifferentiableFunction(DifferentiableOp):
 
 class Add(DifferentiableOp, sympy.Add):
     __sympy_class__ = sympy.Add
-    __new__ = DifferentiableOp.__new__
 
 
 class Mul(DifferentiableOp, sympy.Mul):
     __sympy_class__ = sympy.Mul
-    __new__ = DifferentiableOp.__new__
 
     @property
     def _gather_for_diff(self):
@@ -411,17 +409,14 @@ class Mul(DifferentiableOp, sympy.Mul):
 class Pow(DifferentiableOp, sympy.Pow):
     _fd_priority = 0
     __sympy_class__ = sympy.Pow
-    __new__ = DifferentiableOp.__new__
 
 
 class Mod(DifferentiableOp, sympy.Mod):
     __sympy_class__ = sympy.Mod
-    __new__ = DifferentiableOp.__new__
 
 
 class EvalDerivative(DifferentiableOp, sympy.Add):
     __sympy_class__ = sympy.Add
-    __new__ = DifferentiableOp.__new__
 
 
 class diffify(object):
