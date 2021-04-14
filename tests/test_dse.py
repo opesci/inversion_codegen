@@ -1,4 +1,4 @@
-from sympy import Add, cos, sin, sqrt  # noqa
+from sympy import Add, sqrt  # noqa
 import numpy as np
 import pytest
 from cached_property import cached_property
@@ -7,7 +7,7 @@ from conftest import skipif, EVAL  # noqa
 from devito import (NODE, Eq, Inc, Constant, Function, TimeFunction, SparseTimeFunction,  # noqa
                     Dimension, SubDimension, ConditionalDimension, DefaultDimension, Grid,
                     Operator, norm, grad, div, dimensions, switchconfig, configuration,
-                    centered, first_derivative, solve, transpose)
+                    centered, first_derivative, solve, transpose, cos, sin)
 from devito.exceptions import InvalidArgument, InvalidOperator
 from devito.finite_differences.differentiable import diffify
 from devito.ir import (Conditional, DummyEq, Expression, Iteration, FindNodes,

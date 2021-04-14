@@ -6,8 +6,7 @@ import sympy
 from devito.finite_differences.finite_difference import (generic_derivative,
                                                          first_derivative,
                                                          cross_derivative)
-from devito.finite_differences.differentiable import (Differentiable, EvalDerivative,
-                                                      diffify)
+from devito.finite_differences.differentiable import Differentiable, EvalDerivative
 from devito.finite_differences.tools import direct, transpose
 from devito.tools import as_mapper, as_tuple, filter_ordered, frozendict
 from devito.types.utils import DimensionTuple
@@ -92,10 +91,7 @@ class Derivative(sympy.Derivative, Differentiable):
         if type(expr) == sympy.Derivative:
             raise ValueError("Cannot nest sympy.Derivative with devito.Derivative")
         if not isinstance(expr, Differentiable):
-            try:
-                expr = diffify(expr)
-            except:
-                raise ValueError("`expr` must be a Differentiable object")
+            raise ValueError("`expr` must bes a Differentiable object")
 
         new_dims, orders, fd_o, var_count = cls._process_kwargs(expr, *dims, **kwargs)
 

@@ -1,10 +1,9 @@
 import numpy as np
 import pytest
-from sympy import cos
 
 from conftest import skipif
 from devito import (Grid, Dimension, Function, TimeFunction, Eq, Inc, solve,
-                    Operator, switchconfig, norm)
+                    Operator, switchconfig, norm, cos)
 from devito.exceptions import InvalidOperator
 from devito.ir.iet import Block, FindNodes, retrieve_iteration_tree
 from devito.mpi.routines import IrecvCall, IsendCall

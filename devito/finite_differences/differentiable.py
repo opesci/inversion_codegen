@@ -2,9 +2,9 @@ from collections import ChainMap
 from functools import singledispatch
 
 import sympy
-from sympy.functions.elementary.integers import floor
 from sympy.core.decorators import call_highest_priority
 from sympy.core.evalf import evalf_table
+from sympy.functions.elementary.integers import floor
 
 from cached_property import cached_property
 from devito.finite_differences.tools import make_shift_x0

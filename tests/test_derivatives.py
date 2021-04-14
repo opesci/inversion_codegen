@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
-from sympy import simplify, diff, cos, sin, Float
+from sympy import simplify, diff, Float
 
-from devito import (Grid, Function, TimeFunction, Eq, Operator, NODE,
+from devito import (Grid, Function, TimeFunction, Eq, Operator, NODE, cos, sin,
                     ConditionalDimension, left, right, centered, div, grad)
 from devito.finite_differences import Derivative, Differentiable
 from devito.finite_differences.differentiable import EvalDerivative
