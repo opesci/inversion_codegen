@@ -2,6 +2,7 @@ import sympy
 from sympy.solvers.solveset import linear_coeffs
 
 from devito.finite_differences import Differentiable
+from devito.finite_differences.differentiable import Mul, Pow
 from devito.logger import warning
 from devito.tools import as_tuple
 from devito.types import Eq
@@ -41,7 +42,7 @@ class Solve(Differentiable):
             # Try first linear solver
             try:
                 cc = linear_coeffs(e._eval_at(t).evaluate, t)
-                sols.append(-cc[1]/cc[0])
+                sols.append(Mul(-1, cc[1], Pow(cc[0], -1)))
             except ValueError:
                 warning("Equation is not affine w.r.t the target, falling back to "
                         "standard sympy.solve that may be slow")

@@ -357,6 +357,6 @@ class Derivative(sympy.Derivative, Differentiable):
 
         # Step 5: Cast to EvaluatedDerivative
         assert res.is_Add
-        res = EvalDiffDerivative(*res.args, evaluate=False)
+        res = EvalDiffDerivative(*res.args)
 
         return res
