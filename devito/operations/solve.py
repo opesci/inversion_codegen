@@ -1,8 +1,13 @@
 from functools import singledispatch
 
-from devito.finite_differences.differentiable import Add, Mul, EvalDerivative
+import sympy
 
-__all__ = ['linsolve', 'SolveError']
+from devito.logger import warning
+from devito.finite_differences.differentiable import Add, Mul, EvalDerivative
+from devito.finite_differences.derivative import Derivative
+from devito.tools import as_tuple
+
+__all__ = ['solve', 'linsolve']
 
 
 class SolveError(Exception):
@@ -10,9 +15,55 @@ class SolveError(Exception):
     pass
 
 
+def solve(eq, target, **kwargs):
+    """
+    Algebraically rearrange an Eq w.r.t. a given symbol.
+
+    This is a wrapper around ``sympy.solve``.
+
+    Parameters
+    ----------
+    eq : expr-like
+        The equation to be rearranged.
+    target : symbol
+        The symbol w.r.t. which the equation is rearranged. May be a `Function`
+        or any other symbolic object.
+    **kwargs
+        Symbolic optimizations applied while rearranging the equation. For more
+        information. refer to ``sympy.solve.__doc__``.
+    """
+    try:
+        eq = eq.lhs - eq.rhs if eq.rhs != 0 else eq.lhs
+    except AttributeError:
+        pass
+
+    eqs, targets = as_tuple(eq), as_tuple(target)
+    if len(eqs) == 0:
+        warning("Empty input equation, returning `None`")
+        return None
+
+    sols = []
+    for e, t in zip(eqs, targets):
+        # Try first linear solver
+        try:
+            sols.append(linsolve(eval_time_derivatives(e), t))
+        except SolveError:
+            warning("Equation is not affine w.r.t the target, falling back to standard"
+                    "sympy.solve that may be slow")
+            kwargs['rational'] = False  # Avoid float indices
+            kwargs['simplify'] = False  # Do not attempt premature optimisation
+            sols.append(sympy.solve(e.evaluate, t, **kwargs)[0])
+
+    # We need to rebuild the vector/tensor as sympy.solve outputs a tuple of solutions
+    if len(sols) > 1:
+        return target.new_from_mat(sols)
+    else:
+        return sols[0]
+
+
 def linsolve(expr, target, **kwargs):
     """
-    Linear solve for the targe in a single equation.
+    Linear solve for the target in a single equation.
 
     Parameters
     ----------
@@ -28,18 +79,25 @@ def linsolve(expr, target, **kwargs):
     raise SolveError("No linear solution found")
 
 
-def eval_t(expr):
+@singledispatch
+def eval_time_derivatives(expr):
     """
     Evaluate all time derivatives in the expression.
     """
-    try:
-        assert any(d.is_Time for d in expr.dims)
+    return expr
+
+
+@eval_time_derivatives.register(Derivative)
+def _(expr):
+    if any(d.is_Time for d in expr.dims):
         return expr.evaluate
-    except:
-        try:
-            return expr.func(*[eval_t(a) for a in expr.args])
-        except:
-            return expr
+    return expr
+
+
+@eval_time_derivatives.register(Add)
+@eval_time_derivatives.register(Mul)
+def _(expr):
+    return expr.func(*[eval_time_derivatives(a) for a in expr.args])
 
 
 @singledispatch

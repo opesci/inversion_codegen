@@ -15,6 +15,7 @@ from devito.types.relational import *  # noqa
 from devito.types.sparse import *  # noqa
 from devito.types.tensor import *  # noqa
 from devito.finite_differences import *  # noqa
+from devito.operations.solve import *
 from devito.operator import Operator  # noqa
 
 # Other stuff exposed to the user

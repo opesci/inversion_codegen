@@ -5,11 +5,10 @@ import sympy
 from cached_property import cached_property
 
 from devito.finite_differences import default_rules
-from devito.logger import warning
 from devito.tools import as_tuple
-from devito.types.lazy import Evaluable, eval_t
+from devito.types.lazy import Evaluable
 
-__all__ = ['Eq', 'Inc', 'solve']
+__all__ = ['Eq', 'Inc']
 
 
 class Eq(sympy.Eq, Evaluable):
@@ -216,41 +215,3 @@ class Inc(Eq):
         return "Inc(%s, %s)" % (self.lhs, self.rhs)
 
     __repr__ = __str__
-
-
-def solve(eq, target, **kwargs):
-    """
-    Algebraically rearrange an Eq w.r.t. a given symbol.
-
-    This is a wrapper around ``sympy.solve``.
-
-    Parameters
-    ----------
-    eq : expr-like
-        The equation to be rearranged.
-    target : symbol
-        The symbol w.r.t. which the equation is rearranged. May be a `Function`
-        or any other symbolic object.
-    **kwargs
-        Symbolic optimizations applied while rearranging the equation. For more
-        information. refer to ``sympy.solve.__doc__``.
-    """
-    from devito.operations.solve import linsolve, SolveError
-    if isinstance(eq, Eq):
-        eq = eq.lhs - eq.rhs if eq.rhs != 0 else eq.lhs
-    sols = []
-    for e, t in zip(as_tuple(eq), as_tuple(target)):
-        # Try first linear solver
-        try:
-            sols.append(linsolve(eval_t(e), t))
-        except SolveError:
-            warning("Equation is not affine w.r.t the target, falling back to standard"
-                    "sympy.solve that may be slow")
-            kwargs['rational'] = False  # Avoid float indices
-            kwargs['simplify'] = False  # Do not attempt premature optimisation
-            sols.append(sympy.solve(e.evaluate, t, **kwargs)[0])
-    # We need to rebuild the vector/tensor as sympy.solve outputs a tuple of solutions
-    if len(sols) > 1:
-        return target.new_from_mat(sols)
-    else:
-        return sols[0]

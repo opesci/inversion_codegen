@@ -71,12 +71,15 @@ def collect_const(expr):
             # Other special case: [-a, -b, -c ...]
             add = Add(*[i.args[1] for i in v], evaluate=False)
             mul = Mul(-k, add, evaluate=False)
+        elif k == 1:
+            # 1 * (a + c)
+            mul = Add(*v)
         else:
             # Back to the running example
             # -> (a + c)
             add = Add(*v)
             # -> 3.*(a + c)
-            mul = Mul(k, add, evaluate=False) if k != 1 else add
+            mul = Mul(k, add, evaluate=False)
 
         terms.append(mul)
 

@@ -269,7 +269,6 @@ class Operator(Callable):
             * Shift indices for domain alignment.
         """
         # Add in implicit expressions
-
         expressions = generate_implicit_exprs(expressions)
 
         # Specialization is performed on unevaluated expressions

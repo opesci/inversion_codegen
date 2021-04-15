@@ -357,6 +357,9 @@ class DifferentiableFunction(DifferentiableOp):
     def evaluate(self):
         return self.func(*[getattr(a, 'evaluate', a) for a in self.args])
 
+    def _eval_at(self, func):
+        return self
+
 
 class Add(DifferentiableOp, sympy.Add):
     __sympy_class__ = sympy.Add
@@ -390,7 +393,7 @@ class Mul(DifferentiableOp, sympy.Mul):
         for f in self.args:
             if f not in self._args_diff:
                 new_args.append(f)
-            elif f is func_args:
+            elif f is func_args or isinstance(f, DifferentiableFunction):
                 new_args.append(f)
             else:
                 ind_f = f.indices_ref._getters

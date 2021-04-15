@@ -19,7 +19,7 @@ def norm(f, order=2):
     order : int, optional
         The order of the norm. Defaults to 2.
     """
-    from devito.finite_differences.differentiable import Pow
+    Pow = dv.finite_differences.differentiable.Pow
     kwargs = {}
     if f.is_TimeFunction and f._time_buffering:
         kwargs[f.time_dim.max_name] = f._time_size - 1
