@@ -300,6 +300,11 @@ class DifferentiableOp(Differentiable):
     __sympy_class__ = None
 
     def __new__(cls, *args, **kwargs):
+        # Do not re-evaluate if any of the args is an EvalDerivative,
+        # since the integrity of these objects must be preserved
+        if any(isinstance(i, EvalDerivative) for i in args):
+            kwargs['evaluate'] = False
+
         obj = cls.__base__.__new__(cls, *args, **kwargs)
 
         # Unfortunately SymPy may build new sympy.core objects (e.g., sympy.Add),
@@ -416,7 +421,14 @@ class Mod(DifferentiableOp, sympy.Mod):
 
 
 class EvalDerivative(DifferentiableOp, sympy.Add):
-    __sympy_class__ = sympy.Add
+
+    _op_priority = Differentiable._op_priority + 1.
+
+    is_commutative = True
+
+    def __new__(cls, *args, **kwargs):
+        kwargs['evaluate'] = False
+        return sympy.Add.__new__(cls, *args, **kwargs)
 
 
 class diffify(object):
@@ -496,6 +508,9 @@ def diff2sympy(expr):
             return obj.__sympy_class__(*args, evaluate=False), True
         except AttributeError:
             # Not of type DifferentiableOp
+            pass
+        except TypeError:
+            # Won't lower (e.g., EvalDerivative)
             pass
         if flag:
             return obj.func(*args, evaluate=False), True
