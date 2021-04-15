@@ -12,7 +12,7 @@ from devito.tools import filter_ordered, flatten
 from devito.types.lazy import Evaluable
 from devito.types.utils import DimensionTuple
 
-__all__ = ['Differentiable']
+__all__ = ['Differentiable', 'EvalDiffDerivative']
 
 
 class Differentiable(sympy.Expr, Evaluable):

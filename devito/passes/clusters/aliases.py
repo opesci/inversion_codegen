@@ -5,6 +5,7 @@ from itertools import groupby
 from cached_property import cached_property
 import numpy as np
 
+from devito.finite_differences import EvalDiffDerivative
 from devito.ir import (SEQUENTIAL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
                        Forward, IterationInstance, IterationSpace, Interval,
                        Cluster, Queue, IntervalGroup, LabeledVector,
@@ -343,43 +344,24 @@ class GeneratorExpensiveCompounds(GeneratorExpensive):
 
 class GeneratorDerivatives(Generator):
 
-    # NOTE: the following methods will be greatly simplified when we'll be able
-    # to preserve Derivative information during lowering (currently, when a Derivative
-    # is evaluated, the related information is dropped)
+    @classmethod
+    def _search(cls, expr, n):
+        l0derivs = search(e, rule, 'all', 'bfs_first_hit')
+        from IPython import embed; embed()
+        #TODO: SIMPLE RECURSIVE SEARCH HERE (of depth n, base case n==0 stops)
+
 
     @classmethod
-    def _max_deriv_order(cls, exprs):
-        # NOTE: e might propagate the Derivative(...) information down from the
-        # symbolic language, but users may do crazy things and write their own custom
-        # expansions "by hand" (i.e., not resorting to Derivative(...)), hence instead
-        # of looking for Derivative(...) we use the following heuristic:
-        #   add(mul, mul, ...) -> stems from first order derivative
-        #   add(mul(add(mul, mul, ...), ...), ...) -> stems from second order derivative
-        #   ...
-        nadds = lambda e: (
-            int(e.is_Add) +
-            max([nadds(a) for a in e.args], default=0) if not q_leaf(e) else 0
-        )
-        return max([nadds(e) for e in exprs], default=0)
+    def _uxmap_derivatives(cls, exprs, exclude, maxalias, make):
+        rule = lambda e: isinstance(e, EvalDiffDerivative)
 
-    @classmethod
-    def _search(cls, expr, n, c=0):
-        assert n >= c >= 0
-        if q_leaf(expr) or expr.is_Pow:
-            return []
-        elif expr.is_Mul:
-            if c == n:
-                return [expr]
-            else:
-                return flatten([cls._search(a, n, c+1) for a in expr.args])
-        else:
-            return flatten([cls._search(a, n, c) for a in expr.args])
-
-    @classmethod
-    def _uxmap_derivatives(cls, exprs, exclude, maxalias, make, n):
         mapper = Uxmapper()
         for e in exprs:
-            for i in cls._search(e, n):
+            # We search for all immediately nested derivatives,
+            # e.g. `u.dz.dx` in `u.dz.dx.dy`
+            for i in cls._search(e, 1):
+               from IPython import embed; embed()
+
                 if i.free_symbols & exclude:
                     continue
 
@@ -409,8 +391,7 @@ class GeneratorDerivatives(Generator):
         counter = generator()
         make = lambda: Symbol(name='dummy%d' % counter())
 
-        for n in range(cls._max_deriv_order(exprs)):
-            yield lambda i: cls._uxmap_derivatives(i, exclude, maxalias, make, n)
+        yield lambda i: cls._uxmap_derivatives(i, exclude, maxalias, make)
 
 
 def collect(extracted, ispace, minstorage, mingain):
