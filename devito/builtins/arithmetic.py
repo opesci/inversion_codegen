@@ -1,5 +1,4 @@
 import numpy as np
-from sympy import Abs, Pow
 
 import devito as dv
 from devito.builtins.utils import MPIReduction
@@ -20,6 +19,7 @@ def norm(f, order=2):
     order : int, optional
         The order of the norm. Defaults to 2.
     """
+    from devito.finite_differences.differentiable import Pow
     kwargs = {}
     if f.is_TimeFunction and f._time_buffering:
         kwargs[f.time_dim.max_name] = f._time_size - 1
@@ -33,11 +33,11 @@ def norm(f, order=2):
     with MPIReduction(f) as mr:
         op = dv.Operator([dv.Eq(s, 0.0)] +
                          eqns +
-                         [dv.Inc(s, Abs(Pow(p, order))), dv.Eq(mr.n[0], s)],
+                         [dv.Inc(s, dv.Abs(Pow(p, order))), dv.Eq(mr.n[0], s)],
                          name='norm%d' % order)
         op.apply(**kwargs)
 
-    v = Pow(mr.v, 1/order)
+    v = np.power(mr.v, 1/order)
 
     return f.dtype(v)
 

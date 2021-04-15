@@ -4,7 +4,6 @@ from functools import singledispatch
 import sympy
 from sympy.core.decorators import call_highest_priority
 from sympy.core.evalf import evalf_table
-from sympy.functions.elementary.integers import floor
 
 from cached_property import cached_property
 from devito.finite_differences.tools import make_shift_x0
@@ -202,9 +201,11 @@ class Differentiable(sympy.Expr, Evaluable):
     __rtruediv__ = __rdiv__
 
     def __floordiv__(self, other):
+        from .elementary import floor
         return floor(self / other)
 
     def __rfloordiv__(self, other):
+        from .elementary import floor
         return floor(other / self)
 
     def __mod__(self, other):
@@ -345,6 +346,16 @@ class DifferentiableOp(Differentiable):
 
     def _eval_is_zero(self):
         return None
+
+
+class DifferentiableFunction(DifferentiableOp):
+
+    def __new__(cls, *args, **kwargs):
+        return cls.__sympy_class__.__new__(cls, *args, **kwargs)
+
+    @property
+    def evaluate(self):
+        return self.func(*[getattr(a, 'evaluate', a) for a in self.args])
 
 
 class Add(DifferentiableOp, sympy.Add):

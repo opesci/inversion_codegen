@@ -1,6 +1,4 @@
-from sympy import sign
-
-from devito import Eq, Operator, Function, TimeFunction, Inc, solve
+from devito import Eq, Operator, Function, TimeFunction, Inc, solve, sign
 from devito.symbolics import retrieve_functions, INT
 from examples.seismic import PointSource, Receiver
 

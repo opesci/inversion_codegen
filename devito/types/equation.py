@@ -49,7 +49,7 @@ class Eq(sympy.Eq, Evaluable):
 
     Any SymPy expressions may be used in the right-hand side.
 
-    >>> from sympy import sin
+    >>> from devito import sin
     >>> Eq(f, sin(f.dx)**2)
     Eq(f(x, y), sin(Derivative(f(x, y), x))**2)
 

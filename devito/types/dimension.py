@@ -728,7 +728,7 @@ class ConditionalDimension(DerivedDimension):
     artificial example employs indirect array accesses and uses ConditionalDimension
     to guard against out-of-bounds accesses.
 
-    >>> from sympy import And
+    >>> from devito import And
     >>> ci = ConditionalDimension(name='ci', parent=i,
     ...                           condition=And(g[i] > 0, g[i] < 4, evaluate=False))
     >>> f = Function(name='f', shape=(int(size/factor),), dimensions=(ci,))

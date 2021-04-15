@@ -1,7 +1,6 @@
 import numpy as np
-from sympy import Min, Max
 
-from devito import Operator, Eq
+from devito import Operator, Eq, Min, Max
 
 
 def compute_residual(res, dobs, dsyn):

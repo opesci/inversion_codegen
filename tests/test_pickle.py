@@ -1,12 +1,12 @@
 import pytest
 import numpy as np
-from sympy import Symbol, Min
+from sympy import Symbol
 import pickle
 
 from conftest import skipif
 from devito import (Constant, Eq, Function, TimeFunction, SparseFunction, Grid,
                     Dimension, SubDimension, ConditionalDimension, IncrDimension,
-                    TimeDimension, SteppingDimension, Operator, MPI)
+                    TimeDimension, SteppingDimension, Operator, MPI, Min)
 from devito.data import LEFT, OWNED
 from devito.mpi.halo_scheme import Halo
 from devito.mpi.routines import (MPIStatusObject, MPIMsgEnriched, MPIRequestObject,

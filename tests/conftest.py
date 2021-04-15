@@ -4,11 +4,11 @@ from subprocess import check_call
 import pytest
 import sys
 
-from sympy import cos, Symbol  # noqa
+from sympy import Symbol  # noqa
 
 from devito import (Grid, TimeDimension, SteppingDimension, SpaceDimension, # noqa
                     Constant, Function, TimeFunction, Eq, configuration, SparseFunction, # noqa
-                    SparseTimeFunction)  # noqa
+                    SparseTimeFunction, cos)  # noqa
 from devito.arch import Device, sniff_mpi_distro
 from devito.tools import as_tuple
 

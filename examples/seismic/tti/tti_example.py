@@ -66,7 +66,7 @@ if __name__ == "__main__":
     # Preset parameters
     ndim = args.ndim
     shape = args.shape[:args.ndim]
-    spacing = tuple(ndim * [10.0])
+    spacing = tuple(ndim * [20.0])
     tn = args.tn if args.tn > 0 else (750. if ndim < 3 else 1250.)
 
     run(shape=shape, spacing=spacing, nbl=args.nbl, tn=tn,
