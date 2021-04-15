@@ -359,6 +359,20 @@ class Add(DifferentiableOp, sympy.Add):
 class Mul(DifferentiableOp, sympy.Mul):
     __sympy_class__ = sympy.Mul
 
+    def __new__(cls, *args, **kwargs):
+        # A DifferentiableOp may not trigger evaluation upon construction
+        # (e.g., if an EvalDiffDerivative is present among the arguments)
+        # So we treat some special cases here
+
+        # a*0 -> 0
+        if any(i == 0 for i in args):
+            return sympy.S.Zero
+
+        # a*1 -> a
+        args = [i for i in args if i != 1]
+
+        return super().__new__(cls, *args, **kwargs)
+
     @property
     def _gather_for_diff(self):
         """
