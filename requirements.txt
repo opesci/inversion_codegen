@@ -6,7 +6,7 @@ flake8>=2.1.0
 nbval
 cached-property
 psutil>=5.1.0
-py-cpuinfo<8
+py-cpuinfo<9
 cgen>=2020.1
 codepy>=2019.1
 click
