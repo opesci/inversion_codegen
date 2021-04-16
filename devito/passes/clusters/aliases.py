@@ -109,7 +109,7 @@ class CireTransformer(object):
         for g in self._generators:
             exprs = flatten([c.exprs for c in clusters])
 
-            extractors = g.generate(exprs, exclude, maxalias=self.opt_maxalias)
+            extractors = g.generate(exprs, exclude)
 
             aliases = AliasList()
             for extract in extractors:
@@ -267,7 +267,7 @@ class CireSops(CireTransformer):
 
     @property
     def _generators(self):
-        return (GeneratorDerivatives,)
+        return (GeneratorDerivatives,)  #TODO: ADD GeneratorDerivativesMaxAlias
 
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
@@ -286,14 +286,32 @@ class Generator(object):
     """
 
     @classmethod
-    def generate(cls, exprs, exclude, **kwargs):
+    def _niters(cls, exprs):
         raise NotImplementedError
+
+    @classmethod
+    def _generate(cls, exprs, exclude, make):
+        raise NotImplementedError
+
+    @classmethod
+    def generate(cls, exprs, exclude):
+        counter = generator()
+        make = lambda: Symbol(name='dummy%d' % counter())
+
+        #TODO: FACTORIZE AND GENERALIZE ALL OF THE _GENERATE HERE ?!?
+
+        for n in range(cls._niters(exprs)):
+            yield lambda i: cls._generate(i, exclude, make)
 
 
 class GeneratorExpensive(Generator):
 
     @classmethod
-    def _uxmap_expensive(cls, exprs, exclude, make):
+    def _niters(cls, exprs):
+        return 1
+
+    @classmethod
+    def _generate(cls, exprs, exclude, make):
         rule = lambda e: (e.is_Function or
                           (e.is_Pow and e.exp.is_Number and e.exp < 1))
 
@@ -306,19 +324,12 @@ class GeneratorExpensive(Generator):
 
         return mapper
 
-    @classmethod
-    def generate(cls, exprs, exclude, **kwargs):
-        counter = generator()
-        make = lambda: Symbol(name='dummy%d' % counter())
-
-        yield lambda i: cls._uxmap_expensive(i, exclude, make)
-
 
 class GeneratorExpensiveCompounds(GeneratorExpensive):
 
     @classmethod
-    def _uxmap_expensive_compounds(cls, exprs, exclude, make):
-        extracted = cls._uxmap_expensive(exprs, exclude, make).extracted
+    def _generate(cls, exprs, exclude, make):
+        extracted = super()._generate(exprs, exclude, make).extracted
         rule = lambda e: any(a in extracted for a in e.args)
 
         mapper = Uxmapper()
@@ -334,64 +345,57 @@ class GeneratorExpensiveCompounds(GeneratorExpensive):
 
         return mapper
 
-    @classmethod
-    def generate(cls, exprs, exclude, **kwargs):
-        counter = generator()
-        make = lambda: Symbol(name='dummy%d' % counter())
-
-        yield lambda i: cls._uxmap_expensive_compounds(i, exclude, make)
-
 
 class GeneratorDerivatives(Generator):
 
-    @classmethod
-    def _search(cls, expr, n):
-        l0derivs = search(e, rule, 'all', 'bfs_first_hit')
-        from IPython import embed; embed()
-        #TODO: SIMPLE RECURSIVE SEARCH HERE (of depth n, base case n==0 stops)
-
+    """
+    Search for nested derivatives, e.g. `u.dz` in `(u.dz*a).dx.dy`.
+    """
 
     @classmethod
-    def _uxmap_derivatives(cls, exprs, exclude, maxalias, make):
-        rule = lambda e: isinstance(e, EvalDiffDerivative)
+    def _niters(cls, exprs):
+        def __niters(exprs):
+            found = flatten(e.find(EvalDiffDerivative) for e in exprs)
+            return int(bool(found)) + max([__niters(e.args) for e in found], default=0)
+        return __niters(exprs) - 1
 
+    @classmethod
+    def _search(cls, expr):
+        return [e for e in expr.find(EvalDiffDerivative)
+                if not any(a.has(EvalDiffDerivative) for a in e.args)]
+
+    @classmethod
+    def _generate(cls, exprs, exclude, make):
         mapper = Uxmapper()
         for e in exprs:
-            # We search for all immediately nested derivatives,
-            # e.g. `u.dz.dx` in `u.dz.dx.dy`
-            for i in cls._search(e, 1):
-               from IPython import embed; embed()
-
+            for i in cls._search(e):
                 if i.free_symbols & exclude:
                     continue
 
-                key = lambda a: a.is_Add
-                terms, others = split(i.args, key)
-
-                if maxalias:
-                    # Treat `e` as an FD expression and pull out the derivative
-                    # coefficient from `i`
-                    # Note: typically derivative coefficients are numbers, but
-                    # sometimes they could be provided in symbolic form through an
-                    # arbitrary Function.  In the latter case, we rely on the
-                    # heuristic that such Function's basically never span the whole
-                    # grid, but rather a single Grid dimension (e.g., `c[z, n]` for a
-                    # stencil of diameter `n` along `z`)
-                    if e.grid is not None and terms:
-                        key = partial(maybe_coeff_key, e.grid)
-                        others, more_terms = split(others, key)
-                        terms += more_terms
-
-                mapper.add(i, make, terms)
+                mapper.add(i, make)
 
         return mapper
 
-    @classmethod
-    def generate(cls, exprs, exclude, maxalias=False):
-        counter = generator()
-        make = lambda: Symbol(name='dummy%d' % counter())
 
-        yield lambda i: cls._uxmap_derivatives(i, exclude, maxalias, make)
+class GeneratorDerivativesMaxAlias(GeneratorDerivatives):
+    pass
+
+#    key = lambda a: a.is_Add
+#    terms, others = split(i.args, key)
+#
+#    if maxalias:
+#        # Treat `e` as an FD expression and pull out the derivative
+#        # coefficient from `i`
+#        # Note: typically derivative coefficients are numbers, but
+#        # sometimes they could be provided in symbolic form through an
+#        # arbitrary Function.  In the latter case, we rely on the
+#        # heuristic that such Function's basically never span the whole
+#        # grid, but rather a single Grid dimension (e.g., `c[z, n]` for a
+#        # stencil of diameter `n` along `z`)
+#        if e.grid is not None and terms:
+#            key = partial(maybe_coeff_key, e.grid)
+#            others, more_terms = split(others, key)
+#            terms += more_terms
 
 
 def collect(extracted, ispace, minstorage, mingain):

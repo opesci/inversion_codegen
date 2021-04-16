@@ -461,6 +461,14 @@ class TestAliases(object):
         assert tuple(array.halo) == exp_halo
         assert tuple(shape) == tuple(exp_shape)
 
+    def _R(self, add):
+        # Originally Devito looked for sum-of-products in the Eqns, while now
+        # it looks for Derivatives. However, far too many tests were written
+        # with artificial sum-of-products as input (rather than actual FD
+        # derivative expressions), so with these methods with "fake" such
+        # expressions into Derivatives
+        from IPython import embed; embed()
+
     @pytest.mark.parametrize('rotate', [False, True])
     def test_full_shape(self, rotate):
         """
