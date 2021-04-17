@@ -9,7 +9,7 @@ from devito import (NODE, Eq, Inc, Constant, Function, TimeFunction, SparseTimeF
                     Operator, norm, grad, div, dimensions, switchconfig, configuration,
                     centered, first_derivative, solve, transpose)
 from devito.exceptions import InvalidArgument, InvalidOperator
-from devito.finite_differences.differentiable import diffify
+from devito.finite_differences.differentiable import EvalDiffDerivative, diffify
 from devito.ir import (Conditional, DummyEq, Expression, Iteration, FindNodes,
                        FindSymbols, ParallelIteration, retrieve_iteration_tree)
 from devito.passes.clusters.aliases import collect
@@ -461,14 +461,6 @@ class TestAliases(object):
         assert tuple(array.halo) == exp_halo
         assert tuple(shape) == tuple(exp_shape)
 
-    def _R(self, add):
-        # Originally Devito looked for sum-of-products in the Eqns, while now
-        # it looks for Derivatives. However, far too many tests were written
-        # with artificial sum-of-products as input (rather than actual FD
-        # derivative expressions), so with these methods with "fake" such
-        # expressions into Derivatives
-        from IPython import embed; embed()
-
     @pytest.mark.parametrize('rotate', [False, True])
     def test_full_shape(self, rotate):
         """
@@ -489,12 +481,13 @@ class TestAliases(object):
         u1.data_with_halo[:] = 0.5
 
         # Leads to 3D aliases
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3.*f +
-                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z+1])*3.*f +
+                               _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f) + 1.)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
                                               'cire-rotate': rotate}))
+        from IPython import embed; embed()
 
         # Check code generation
         xs, ys, zs = self.get_params(op1, 'x0_blk0_size', 'y0_blk0_size', 'z_size')
@@ -527,8 +520,8 @@ class TestAliases(object):
         u1.data_with_halo[:] = 0.5
 
         # Leads to 2D aliases
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x, y+1, z+1])*3.*f +
-                             (u[t, x, y+2, z+2] + u[t, x, y+3, z+3])*3.*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x, y+1, z+1])*3.*f +
+                               _R(u[t, x, y+2, z+2] + u[t, x, y+3, z+3])*3.*f + 1))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
@@ -566,8 +559,8 @@ class TestAliases(object):
         u1.data_with_halo[:] = 0.5
 
         # Leads to 3D aliases
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z])*3.*f +
-                             (u[t, x+2, y+2, z] + u[t, x+3, y+3, z])*3.*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z])*3.*f +
+                               _R(u[t, x+2, y+2, z] + u[t, x+3, y+3, z])*3.*f + 1))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
@@ -640,8 +633,8 @@ class TestAliases(object):
         u1.data_with_halo[:] = 0.5
 
         # Leads to 3D aliases
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3.*f +
-                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1),
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z+1])*3.*f +
+                               _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1),
                  subdomain=grid.interior)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
@@ -684,10 +677,10 @@ class TestAliases(object):
 
         # Leads to 2D and 3D aliases
         eqn = Eq(u.forward,
-                 ((c[0, z]*u[t, x+1, y+1, z] + c[1, z+1]*u[t, x+1, y+1, z+1])*f +
-                  (c[0, z]*u[t, x+2, y+2, z] + c[1, z+1]*u[t, x+2, y+2, z+1])*f +
-                  (u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1])*3.*f +
-                  (u[t, x, y+3, z+1] + u[t, x+1, y+3, z+1])*3.*f))
+                 _R(_R(c[0, z]*u[t, x+1, y+1, z] + c[1, z+1]*u[t, x+1, y+1, z+1])*f +
+                    _R(c[0, z]*u[t, x+2, y+2, z] + c[1, z+1]*u[t, x+2, y+2, z+1])*f +
+                    _R(u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1])*3.*f +
+                    _R(u[t, x, y+3, z+1] + u[t, x+1, y+3, z+1])*3.*f))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced',
@@ -777,6 +770,7 @@ class TestAliases(object):
 
         op0 = Operator(eqns, opt=('advanced', {'min-storage': False, 'cire-mingain': 1}))
         op1 = Operator(eqns, opt=('advanced', {'min-storage': True, 'cire-mingain': 1}))
+        from IPython import embed; embed()
 
         # Check code generation
         # min-storage has no effect in this example
@@ -2414,3 +2408,23 @@ class TestTTIv2(object):
         assert len(sections) == 2
         assert sections[0].sops == 4
         assert sections[1].sops == expected
+
+
+# Utilities for retrocompatibility
+
+
+def _R(expr):
+    """
+    Originally Devito searched for sum-of-products in the Eq's, while now
+    it searches for Derivatives (or, to be more precise, EvalDiffDerivative).
+    However, far too many tests were written with artificial sum-of-products
+    as input (rather than actual FD derivative expressions), so here we "fake"
+    such expressions as derivatives.
+    """
+    if any(a.has(EvalDiffDerivative) for a in expr.args):
+        base = expr
+    else:
+        base = {i.function for i in expr.free_symbols if i.function.is_TimeFunction}
+        assert len(base) == 1
+        base = base.pop()
+    return EvalDiffDerivative(*expr.args, base=base)
