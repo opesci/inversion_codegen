@@ -358,6 +358,6 @@ class Derivative(sympy.Derivative, Differentiable):
 
         # Step 5: Cast to EvaluatedDerivative
         assert res.is_Add
-        res = EvalDerivative(*res.args)
+        res = EvalDerivative(*res.args, base=expr)
 
         return res
