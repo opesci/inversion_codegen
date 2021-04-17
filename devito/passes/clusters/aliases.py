@@ -109,27 +109,21 @@ class CireTransformer(object):
         for g in self._generators:
             exprs = flatten([c.exprs for c in clusters])
 
-            extractors = g.generate(exprs, exclude)
+            mapper = g.generate(exprs, exclude)
 
-            aliases = AliasList()
-            for extract in extractors:
-                mapper = extract(exprs)
+            found = collect(mapper.extracted, meta.ispace,
+                            self.opt_minstorage, self.opt_mingain)
 
-                found = collect(mapper.extracted, meta.ispace,
-                                self.opt_minstorage, self.opt_mingain)
-
-                exprs, chosen = choose(found, exprs, mapper)
-                aliases.update(chosen)
+            exprs, aliases = choose(found, exprs, mapper)
 
             if aliases:
                 variants.append(SpacePoint(aliases, exprs))
 
         # [AliasList]_m -> AliasList (s.t. best memory/flops trade-off)
-        from IPython import embed; embed()
         try:
             aliases, exprs = pick_best(variants)
         except IndexError:
-            return []
+            return [], []
 
         # AliasList -> Schedule
         schedule = lower_aliases(aliases, meta, self.opt_maxpar)
@@ -143,6 +137,7 @@ class CireTransformer(object):
         processed, subs = lower_schedule(schedule, meta, self.sregistry, self.opt_ftemps)
 
         # [Clusters]_k -> [Clusters]_{k+n}
+        rebuilt = []
         for c in clusters:
             n = len(c.exprs)
             cexprs, exprs = exprs[:n], exprs[n:]
@@ -157,11 +152,11 @@ class CireTransformer(object):
                      for k, v in accesses.items() if k}
             dspace = DataSpace(c.dspace.intervals, parts)
 
-            processed.append(c.rebuild(exprs=cexprs, ispace=ispace, dspace=dspace))
+            rebuilt.append(c.rebuild(exprs=cexprs, ispace=ispace, dspace=dspace))
 
         assert len(exprs) == 0
 
-        return processed
+        return processed, rebuilt
 
     @property
     def _generators(self):
@@ -216,12 +211,13 @@ class CireInvariants(CireTransformer, Queue):
         for ak, group in as_mapper(clusters, key=key).items():
             g = [c for c in group if c.is_dense and c not in xtracted]
 
-            made = self._aliases_from_clusters(g, exclude, ak)
+            made, rebuilt = self._aliases_from_clusters(g, exclude, ak)
 
             if made:
-                for n, c in enumerate(g, -len(g)):
-                    processed[processed.index(c)] = made.pop(n)
-                processed = made + processed
+                #TODO: CHECK THE CHANGE BELOW!!
+                #for n, c in enumerate(g, -len(g)):
+                #    processed[processed.index(c)] = made.pop(n)
+                processed = made + processed[:-len(g)] + rebuilt
 
                 xtracted.extend(made)
 
@@ -260,9 +256,15 @@ class CireSops(CireTransformer):
             # u[x, y] = ... r0*a[x, y] ...
             exclude = {i.source.indexed for i in c.scope.d_flow.independent()}
 
-            made = self._aliases_from_clusters([c], exclude, self._lookup_key(c))
+            ak = self._lookup_key(c)
 
-            processed.extend(flatten(made) or [c])
+            # Iterate until there are EvalDiffDerivatives to be optimized
+            nxt = [c]
+            while nxt:
+                rebuilt = nxt
+                made, nxt = self._aliases_from_clusters(rebuilt, exclude, ak)
+                processed.extend(made)
+            processed.append(rebuilt)
 
         return processed
 
@@ -287,10 +289,6 @@ class Generator(object):
     """
 
     @classmethod
-    def _niters(cls, exprs):
-        raise NotImplementedError
-
-    @classmethod
     def _generate(cls, exprs, exclude, make):
         raise NotImplementedError
 
@@ -301,15 +299,10 @@ class Generator(object):
 
         #TODO: FACTORIZE AND GENERALIZE ALL OF THE _GENERATE HERE ?!?
 
-        for n in range(cls._niters(exprs)):
-            yield lambda i: cls._generate(i, exclude, make)
+        return cls._generate(exprs, exclude, make)
 
 
 class GeneratorExpensive(Generator):
-
-    @classmethod
-    def _niters(cls, exprs):
-        return 1
 
     @classmethod
     def _generate(cls, exprs, exclude, make):
@@ -353,11 +346,6 @@ class GeneratorDerivatives(Generator):
     """
     Search the innermost non-Function derivatives, e.g. `u.dz*a` in `(u.dz*a).dx.dy`.
     """
-
-    @classmethod
-    def _niters(cls, exprs):
-        found = flatten(e.find(EvalDiffDerivative) for e in exprs)
-        return int(bool(found)) + max([cls._niters(e.args) for e in found], default=0)
 
     @classmethod
     def _search(cls, expr):
@@ -576,7 +564,10 @@ def collect(extracted, ispace, minstorage, mingain):
             try:
                 score = estimate_cost(pivot, True)*((na - 1) + nr) // mingain
             except ZeroDivisionError:
-                score = np.inf
+                if pivot.is_Symbol:
+                    score = 0
+                else:
+                    score = np.inf
             if score > 0:
                 aliases.add(pivot, aliaseds, list(mapper), distances, score)
 
@@ -1270,6 +1261,14 @@ def nredundants(ispace, expr):
     """
     return (len({i.dim.root for i in ispace}) -
             len({i.root for i in expr.free_symbols if i.is_Dimension}))
+
+
+#def mdo(exprs):
+#    """
+#    Maximum derivative order.
+#    """
+#    found = flatten(e.find(EvalDiffDerivative) for e in exprs)
+#    return int(bool(found)) + max([mdo(e.args) for e in found], default=0)
 
 
 def wset(exprs):
