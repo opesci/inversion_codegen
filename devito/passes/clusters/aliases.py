@@ -125,6 +125,7 @@ class CireTransformer(object):
                 variants.append(SpacePoint(aliases, exprs))
 
         # [AliasList]_m -> AliasList (s.t. best memory/flops trade-off)
+        from IPython import embed; embed()
         try:
             aliases, exprs = pick_best(variants)
         except IndexError:
@@ -320,6 +321,7 @@ class GeneratorExpensive(Generator):
             for i in search(e, rule, 'all', 'bfs_first_hit'):
                 if {a.function for a in i.free_symbols} & exclude:
                     continue
+
                 mapper.add(i, make)
 
         return mapper
@@ -349,20 +351,24 @@ class GeneratorExpensiveCompounds(GeneratorExpensive):
 class GeneratorDerivatives(Generator):
 
     """
-    Search for nested derivatives, e.g. `u.dz` in `(u.dz*a).dx.dy`.
+    Search the innermost non-Function derivatives, e.g. `u.dz*a` in `(u.dz*a).dx.dy`.
     """
 
     @classmethod
     def _niters(cls, exprs):
-        def __niters(exprs):
-            found = flatten(e.find(EvalDiffDerivative) for e in exprs)
-            return int(bool(found)) + max([__niters(e.args) for e in found], default=0)
-        return __niters(exprs) - 1
+        found = flatten(e.find(EvalDiffDerivative) for e in exprs)
+        return int(bool(found)) + max([cls._niters(e.args) for e in found], default=0)
 
     @classmethod
     def _search(cls, expr):
-        return [e for e in expr.find(EvalDiffDerivative)
-                if not any(a.has(EvalDiffDerivative) for a in e.args)]
+        found = [cls._search(a) for a in expr.args if a.has(EvalDiffDerivative)]
+        found = flatten(e for e in found if e)
+        if found:
+            return found
+        if isinstance(expr, EvalDiffDerivative) and not expr.base.is_Function:
+            return expr.args
+        else:
+            return []
 
     @classmethod
     def _generate(cls, exprs, exclude, make):

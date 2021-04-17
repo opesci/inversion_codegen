@@ -436,13 +436,23 @@ class Mod(DifferentiableOp, sympy.Mod):
 
 class EvalDerivative(DifferentiableOp, sympy.Add):
 
+    #TODO: NECESSARY??
     _op_priority = Differentiable._op_priority + 1.
 
     is_commutative = True
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *args, base=None, **kwargs):
         kwargs['evaluate'] = False
-        return sympy.Add.__new__(cls, *args, **kwargs)
+        obj = sympy.Add.__new__(cls, *args, **kwargs)
+        obj.base = base
+        return obj
+
+    @property
+    def func(self):
+        return lambda *a, **kw: EvalDiffDerivative(*a, base=self.base, **kw)
+
+    def _new_rawargs(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
 
 
 class diffify(object):
