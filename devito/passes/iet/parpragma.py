@@ -47,7 +47,6 @@ class PragmaSimdTransformer(PragmaTransformer):
         #for tree in reversed(sorted_treelist):
         for tree in treelist:
             candidates = [i for i in tree if i.is_ParallelRelaxed]
-            #import pdb;pdb.set_trace()
             # As long as there's an outer level of parallelism, the innermost
             # PARALLEL Iteration gets vectorized
 
@@ -85,7 +84,6 @@ class PragmaSimdTransformer(PragmaTransformer):
             properties = list(candidate.properties) + [VECTORIZED]
             mapper[candidate] = candidate._rebuild(pragmas=pragmas, properties=properties)
 
-        #import pdb;pdb.set_trace()
 
         iet = Transformer(mapper, nested=True).visit(iet)
 

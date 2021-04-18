@@ -66,7 +66,7 @@ def autotune(operator, args, level, mode):
                     i.torank = MPI.PROC_NULL
 
     roots = [operator.body] + [i.root for i in operator._func_table.values()]
-    trees = filter_ordered(retrieve_iteration_tree(roots), key=lambda i: i.root)
+    trees = filter_ordered(retrieve_iteration_tree(roots))
 
     # Detect the time-stepping Iteration; shrink its iteration range so that
     # each autotuning run only takes a few iterations
@@ -88,7 +88,6 @@ def autotune(operator, args, level, mode):
     at_args.update(timer._arg_values())
 
     # Perform autotuning
-    # import pdb;pdb.set_trace()
     timings = {}
     for n, tree in enumerate(trees):
         blockable = [i.dim for i in tree if not is_integer(i.step)]
