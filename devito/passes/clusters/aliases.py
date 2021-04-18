@@ -278,90 +278,69 @@ modes = {
 
 class Generator(object):
 
-    """
-    Defines the interface of a generator for a CireTransformer.
-    """
-
     @classmethod
-    def _generate(cls, exprs, exclude, make):
+    def _search(cls, expr, basextr):
         raise NotImplementedError
 
     @classmethod
-    def generate(cls, exprs, exclude):
-        counter = generator()
-        make = lambda: Symbol(name='dummy%d' % counter())
-
-        #TODO: FACTORIZE AND GENERALIZE ALL OF THE _GENERATE HERE ?!?
-
-        return cls._generate(exprs, exclude, make)
-
-
-class GeneratorExpensive(Generator):
+    def _compose(cls, expr, basextr):
+        return None
 
     @classmethod
-    def _generate(cls, exprs, exclude, make):
-        rule = lambda e: (e.is_Function or
-                          (e.is_Pow and e.exp.is_Number and e.exp < 1))
+    def generate(cls, exprs, exclude, make=None):
+        if make is None:
+            counter = generator()
+            make = lambda: Symbol(name='dummy%d' % counter())
+
+        try:
+            basextr = super().generate(exprs, exclude, make).extracted
+        except AttributeError:
+            basextr = Uxmapper()
 
         mapper = Uxmapper()
         for e in exprs:
-            for i in search(e, rule, 'all', 'bfs_first_hit'):
+            for i in cls._search(e, basextr):
                 if {a.function for a in i.free_symbols} & exclude:
                     continue
-
-                mapper.add(i, make)
-
-        return mapper
-
-
-class GeneratorExpensiveCompounds(GeneratorExpensive):
-
-    @classmethod
-    def _generate(cls, exprs, exclude, make):
-        extracted = super()._generate(exprs, exclude, make).extracted
-        rule = lambda e: any(a in extracted for a in e.args)
-
-        mapper = Uxmapper()
-        for e in exprs:
-            for i in search(e, rule, 'all', 'dfs'):
                 if not i.is_commutative:
                     continue
 
-                key = lambda a: a in extracted
-                terms, others = split(i.args, key)
+                terms = cls._compose(i, basextr)
 
                 mapper.add(i, make, terms)
 
         return mapper
 
 
+class GeneratorExpensive(Generator):
+
+    @classmethod
+    def _search(cls, expr, *args):
+        rule = lambda e: e.is_Function or (e.is_Pow and e.exp.is_Number and e.exp < 1)
+        return search(expr, rule, 'all', 'bfs_first_hit')
+
+
+class GeneratorExpensiveCompounds(GeneratorExpensive):
+
+    @classmethod
+    def _search(cls, expr, basextr):
+        rule = lambda e: any(a in basextr for a in e.args)
+        return search(expr, rule, 'all', 'dfs')
+
+    @classmethod
+    def _compose(cls, expr, basextr):
+        return split(i.args, lambda a: a in basextr)[0]
+
+
 class GeneratorDerivatives(Generator):
 
-    """
-    Search the innermost non-Function derivatives, e.g. `u.dz*a` in `(u.dz*a).dx.dy`.
-    """
-
     @classmethod
-    def _search(cls, expr):
-        from IPython import embed; embed()
+    def _search(cls, expr, *args):
         if isinstance(expr, EvalDiffDerivative) and not expr.base.is_Function:
+            from IPython import embed; embed()
             return expr.args
         else:
-            retval = [cls._search(a) for a in expr.args]
-            retval = flatten(e for e in retval if e)
-            return retval
-
-    @classmethod
-    def _generate(cls, exprs, exclude, make):
-        mapper = Uxmapper()
-        for e in exprs:
-            for i in cls._search(e):
-                if i.free_symbols & exclude:
-                    continue
-
-                mapper.add(i, make)
-
-        return mapper
+            return flatten(e for e in [cls._search(a) for a in expr.args] if e)
 
 
 class GeneratorDerivativesMaxAlias(GeneratorDerivatives):
