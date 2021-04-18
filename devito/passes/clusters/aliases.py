@@ -123,7 +123,7 @@ class CireTransformer(object):
         try:
             aliases, exprs = pick_best(variants)
         except IndexError:
-            return [], []
+            return []
 
         # AliasList -> Schedule
         schedule = lower_aliases(aliases, meta, self.opt_maxpar)
@@ -137,7 +137,6 @@ class CireTransformer(object):
         processed, subs = lower_schedule(schedule, meta, self.sregistry, self.opt_ftemps)
 
         # [Clusters]_k -> [Clusters]_{k+n}
-        rebuilt = []
         for c in clusters:
             n = len(c.exprs)
             cexprs, exprs = exprs[:n], exprs[n:]
@@ -152,11 +151,11 @@ class CireTransformer(object):
                      for k, v in accesses.items() if k}
             dspace = DataSpace(c.dspace.intervals, parts)
 
-            rebuilt.append(c.rebuild(exprs=cexprs, ispace=ispace, dspace=dspace))
+            processed.append(c.rebuild(exprs=cexprs, ispace=ispace, dspace=dspace))
 
         assert len(exprs) == 0
 
-        return processed, rebuilt
+        return processed
 
     @property
     def _generators(self):
@@ -211,13 +210,12 @@ class CireInvariants(CireTransformer, Queue):
         for ak, group in as_mapper(clusters, key=key).items():
             g = [c for c in group if c.is_dense and c not in xtracted]
 
-            made, rebuilt = self._aliases_from_clusters(g, exclude, ak)
+            made = self._aliases_from_clusters(g, exclude, ak)
 
             if made:
-                #TODO: CHECK THE CHANGE BELOW!!
-                #for n, c in enumerate(g, -len(g)):
-                #    processed[processed.index(c)] = made.pop(n)
-                processed = made + processed[:-len(g)] + rebuilt
+                for n, c in enumerate(g, -len(g)):
+                    processed[processed.index(c)] = made.pop(n)
+                processed = made + processed
 
                 xtracted.extend(made)
 
@@ -256,15 +254,11 @@ class CireSops(CireTransformer):
             # u[x, y] = ... r0*a[x, y] ...
             exclude = {i.source.indexed for i in c.scope.d_flow.independent()}
 
-            ak = self._lookup_key(c)
+            #TODO: TO OPT NESTED DERIVATIVES, JUST KEEP ITERATING UNTIL
+            # MADE'S PROCESSED-PART IS EMPTY
+            made = self._aliases_from_clusters([c], exclude, self._lookup_key(c))
 
-            # Iterate until there are EvalDiffDerivatives to be optimized
-            nxt = [c]
-            while nxt:
-                rebuilt = nxt
-                made, nxt = self._aliases_from_clusters(rebuilt, exclude, ak)
-                processed.extend(made)
-            processed.append(rebuilt)
+            processed.extend(flatten(made) or [c])
 
         return processed
 
@@ -349,14 +343,13 @@ class GeneratorDerivatives(Generator):
 
     @classmethod
     def _search(cls, expr):
-        found = [cls._search(a) for a in expr.args if a.has(EvalDiffDerivative)]
-        found = flatten(e for e in found if e)
-        if found:
-            return found
+        from IPython import embed; embed()
         if isinstance(expr, EvalDiffDerivative) and not expr.base.is_Function:
             return expr.args
         else:
-            return []
+            retval = [cls._search(a) for a in expr.args]
+            retval = flatten(e for e in retval if e)
+            return retval
 
     @classmethod
     def _generate(cls, exprs, exclude, make):
@@ -564,10 +557,7 @@ def collect(extracted, ispace, minstorage, mingain):
             try:
                 score = estimate_cost(pivot, True)*((na - 1) + nr) // mingain
             except ZeroDivisionError:
-                if pivot.is_Symbol:
-                    score = 0
-                else:
-                    score = np.inf
+                score = np.inf
             if score > 0:
                 aliases.add(pivot, aliaseds, list(mapper), distances, score)
 
@@ -1261,14 +1251,6 @@ def nredundants(ispace, expr):
     """
     return (len({i.dim.root for i in ispace}) -
             len({i.root for i in expr.free_symbols if i.is_Dimension}))
-
-
-#def mdo(exprs):
-#    """
-#    Maximum derivative order.
-#    """
-#    found = flatten(e.find(EvalDiffDerivative) for e in exprs)
-#    return int(bool(found)) + max([mdo(e.args) for e in found], default=0)
 
 
 def wset(exprs):
