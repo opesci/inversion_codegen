@@ -124,7 +124,6 @@ class CireTransformer(object):
             aliases, exprs = pick_best(variants)
         except IndexError:
             return []
-        from IPython import embed; embed()
 
         # AliasList -> Schedule
         schedule = lower_aliases(aliases, meta, self.opt_maxpar)
@@ -280,6 +279,10 @@ modes = {
 class Generator(object):
 
     @classmethod
+    def _basextr(cls, exprs, exclude, make):
+        return Uxmapper()
+
+    @classmethod
     def _search(cls, expr, basextr):
         raise NotImplementedError
 
@@ -293,20 +296,23 @@ class Generator(object):
             counter = generator()
             make = lambda: Symbol(name='dummy%d' % counter())
 
-        try:
-            basextr = super().generate(exprs, exclude, make).extracted
-        except AttributeError:
-            basextr = Uxmapper()
+        basextr = cls._basextr(exprs, exclude, make)
 
         mapper = Uxmapper()
         for e in exprs:
             for i in cls._search(e, basextr):
-                if {a.function for a in i.free_symbols} & exclude:
-                    continue
                 if not i.is_commutative:
                     continue
 
                 terms = cls._compose(i, basextr)
+
+                # Make sure we won't break any data dependencies
+                if terms:
+                    free_symbols = set().union(*[i.free_symbols for i in terms])
+                else:
+                    free_symbols = i.free_symbols
+                if {a.function for a in free_symbols} & exclude:
+                    continue
 
                 mapper.add(i, make, terms)
 
@@ -324,13 +330,17 @@ class GeneratorExpensive(Generator):
 class GeneratorExpensiveCompounds(GeneratorExpensive):
 
     @classmethod
+    def _basextr(cls, exprs, exclude, make):
+        return cls.__base__.generate(exprs, exclude, make)
+
+    @classmethod
     def _search(cls, expr, basextr):
         rule = lambda e: any(a in basextr for a in e.args)
         return search(expr, rule, 'all', 'dfs')
 
     @classmethod
     def _compose(cls, expr, basextr):
-        return split(expr.args, lambda a: a in basextr)[1]
+        return split(expr.args, lambda a: a in basextr)[0]
 
 
 class GeneratorDerivatives(Generator):
@@ -1218,13 +1228,16 @@ def split_coeff(expr):
     """
     Split potential derivative coefficients and arguments into two groups.
     """
+    # TODO: Once we'll be able to keep Derivative intact down to this point,
+    # we won't need neither `split_coeff` nor `maybe_coeff` anymore
     grids = {getattr(i.function, 'grid', None) for i in expr.free_symbols} - {None}
     if len(grids) != 1:
         return [], None
     grid = grids.pop()
-    return split(expr.args, partial(maybe_coeff_key, grid))
+    return split(expr.args, partial(maybe_coeff, grid))
 
-def maybe_coeff_key(grid, expr):
+
+def maybe_coeff(grid, expr):
     """
     True if `expr` could be the coefficient of an FD derivative, False otherwise.
     """
