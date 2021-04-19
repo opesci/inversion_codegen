@@ -9,7 +9,7 @@ from sympy.core.evalf import evalf_table
 from cached_property import cached_property
 from devito.finite_differences.tools import make_shift_x0
 from devito.logger import warning
-from devito.tools import filter_ordered, flatten
+from devito.tools import filter_ordered, flatten, split
 from devito.types.lazy import Evaluable, EvalDerivative
 from devito.types.utils import DimensionTuple
 
@@ -354,6 +354,13 @@ class DifferentiableOp(Differentiable):
 
 class Add(DifferentiableOp, sympy.Add):
     __sympy_class__ = sympy.Add
+
+    def __new__(cls, *args, **kwargs):
+        # Flatten e.g. Add(Add(...), ...) due to unevaluation of ops over EvalDiffDerivative
+        nested, others = split(args, lambda e: isinstance(e, Add))
+        args = flatten(e.args for e in nested) + list(others)
+        
+        return super().__new__(cls, *args, **kwargs)
 
 
 class Mul(DifferentiableOp, sympy.Mul):

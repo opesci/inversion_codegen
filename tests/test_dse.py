@@ -675,7 +675,6 @@ class TestAliases(object):
         op1 = Operator(eqn, opt=('advanced',
                                  {'openmp': True, 'min-storage': True,
                                   'cire-mingain': 0, 'cire-rotate': rotate}))
-        from IPython import embed; embed()
 
         # Check code generation
         assert len(op1._func_table) == 1
