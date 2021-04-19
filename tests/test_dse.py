@@ -1648,7 +1648,7 @@ class TestAliases(object):
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
-        assert summary[('section0', None)].ops == 109
+        assert summary[('section0', None)].ops == 93
 
     @pytest.mark.parametrize('so_ops', [(4, 33), (8, 69)])
     @pytest.mark.parametrize('rotate', [False, True])
