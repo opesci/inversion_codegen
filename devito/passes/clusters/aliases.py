@@ -782,14 +782,14 @@ def optimize_schedule_padding(schedule, meta, platform):
     for i in schedule:
         try:
             it = i.ispace.itintervals[-1]
-            if ROUNDABLE in meta.properties[it.dim]:
+            if it.dim is i.writeto[-1].dim and  ROUNDABLE in meta.properties[it.dim]:
                 vl = platform.simd_items_per_reg(meta.dtype)
                 ispace = i.ispace.add(Interval(it.dim, 0, it.interval.size % vl))
             else:
                 ispace = i.ispace
             processed.append(ScheduledAlias(i.pivot, i.writeto, ispace, i.aliaseds,
                                             i.indicess))
-        except (TypeError, KeyError):
+        except (TypeError, KeyError, IndexError):
             processed.append(i)
 
     return Schedule(*processed, dmapper=schedule.dmapper, rmapper=schedule.rmapper)
@@ -869,7 +869,7 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
             if any(i.is_Modulo for i in ispace.sub_iterators[d]):
                 properties[d] = normalize_properties(v, {SEQUENTIAL})
             elif d not in writeto.dimensions:
-                properties[d] = normalize_properties(v, {PARALLEL_IF_PVT})
+                properties[d] = normalize_properties(v, {PARALLEL_IF_PVT}) - {ROUNDABLE}
 
         # Finally, build the alias Cluster
         clusters.append(Cluster(expression, ispace, dspace, meta.guards, properties))
