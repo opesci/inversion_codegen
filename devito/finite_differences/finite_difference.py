@@ -282,6 +282,6 @@ def indices_weights_to_fd(expr, dim, inds, weights, matvec=1):
         c = sympify(c).evalf(_PRECISION)
         terms.append(expr._subs(dim, iloc - (expr.indices_ref[dim] - dim)) * c)
 
-    deriv = EvalDerivative(*terms)
+    deriv = EvalDerivative(*terms, base=expr)
 
     return deriv
