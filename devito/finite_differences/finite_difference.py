@@ -1,6 +1,6 @@
 from sympy import sympify
 
-from devito.finite_differences.differentiable import Add
+from devito.finite_differences.differentiable import Add, EvalDiffDerivative
 from devito.finite_differences.tools import (numeric_weights, symbolic_weights, left,
                                              right, generate_indices, centered, direct,
                                              transpose, check_input, check_symbolic)
@@ -282,6 +282,6 @@ def indices_weights_to_fd(expr, dim, inds, weights, matvec=1):
         c = sympify(c).evalf(_PRECISION)
         terms.append(expr._subs(dim, iloc - (expr.indices_ref[dim] - dim)) * c)
 
-    deriv = Add(*terms)
+    deriv = EvalDiffDerivative(*terms, base=expr)
 
     return deriv
