@@ -5,7 +5,7 @@ from itertools import groupby
 from cached_property import cached_property
 import numpy as np
 
-from devito.finite_differences import EvalDiffDerivative
+from devito.finite_differences import EvalDerivative
 from devito.ir import (SEQUENTIAL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
                        Forward, IterationInstance, IterationSpace, Interval,
                        Cluster, Queue, IntervalGroup, LabeledVector,
@@ -124,6 +124,7 @@ class CireTransformer(object):
             aliases, exprs = pick_best(variants)
         except IndexError:
             return []
+        from IPython import embed; embed()
 
         # AliasList -> Schedule
         schedule = lower_aliases(aliases, meta, self.opt_maxpar)
@@ -329,18 +330,21 @@ class GeneratorExpensiveCompounds(GeneratorExpensive):
 
     @classmethod
     def _compose(cls, expr, basextr):
-        return split(i.args, lambda a: a in basextr)[0]
+        return split(expr.args, lambda a: a in basextr)[1]
 
 
 class GeneratorDerivatives(Generator):
 
     @classmethod
     def _search(cls, expr, *args):
-        if isinstance(expr, EvalDiffDerivative) and not expr.base.is_Function:
-            from IPython import embed; embed()
+        if isinstance(expr, EvalDerivative) and not expr.base.is_Function:
             return expr.args
         else:
             return flatten(e for e in [cls._search(a) for a in expr.args] if e)
+
+    @classmethod
+    def _compose(cls, expr, *args):
+        return split_coeff(expr)[1]
 
 
 class GeneratorDerivativesMaxAlias(GeneratorDerivatives):
@@ -1210,6 +1214,16 @@ def cit(ispace0, ispace1):
     return tuple(found)
 
 
+def split_coeff(expr):
+    """
+    Split potential derivative coefficients and arguments into two groups.
+    """
+    grids = {getattr(i.function, 'grid', None) for i in expr.free_symbols} - {None}
+    if len(grids) != 1:
+        return [], None
+    grid = grids.pop()
+    return split(expr.args, partial(maybe_coeff_key, grid))
+
 def maybe_coeff_key(grid, expr):
     """
     True if `expr` could be the coefficient of an FD derivative, False otherwise.
@@ -1217,6 +1231,8 @@ def maybe_coeff_key(grid, expr):
     if expr.is_Number:
         return True
     indexeds = [i for i in expr.free_symbols if i.is_Indexed]
+    if not indexeds:
+        return True
     return any(not set(grid.dimensions) <= set(i.function.dimensions) for i in indexeds)
 
 
