@@ -1106,23 +1106,23 @@ class TestAliases(object):
         t = grid.stepping_dim
         i = Dimension(name='i')
 
-        f = Function(name='f', grid=grid)
         g = Function(name='g', shape=(3,), dimensions=(i,))
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
         v = TimeFunction(name='v', grid=grid, space_order=3)
         v1 = TimeFunction(name='v1', grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 1.
+        uf = u.forward
+        vf = v.forward
+
         g.data[:] = 2.
 
         # Leads to 3D aliases
-        eqns = [Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3.*f +
-                               (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1)),
+        eqns = [Eq(uf, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z+1])*3. +
+                          _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3. + 1.)),
                 Inc(u[t+1, i, i, i], g + 1),
-                Eq(v.forward, ((v[t, x, y, z] + v[t, x+1, y+1, z+1])*3.*u.forward +
-                               (v[t, x+2, y+2, z+2] + v[t, x+3, y+3, z+3])*3.*u.forward +
-                               1))]
+                Eq(vf, _R(_R(v[t, x, y, z] + v[t, x+1, y+1, z+1])*3. +
+                          _R(v[t, x+2, y+2, z+2] + v[t, x+3, y+3, z+3])*3. + 1.) + uf)]
         op0 = Operator(eqns, opt=('noop', {'openmp': True}))
         op1 = Operator(eqns, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
                                                'cire-rotate': rotate}))
