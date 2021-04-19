@@ -373,7 +373,7 @@ class Add(DifferentiableOp, sympy.Add):
         # Flatten e.g. Add(Add(...), ...) due to unevaluation of ops over EvalDerivative
         nested, others = split(args, lambda e: isinstance(e, Add))
         args = flatten(e.args for e in nested) + list(others)
-        
+
         return super().__new__(cls, *args, **kwargs)
 
 

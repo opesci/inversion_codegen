@@ -670,7 +670,7 @@ class TestAliases(object):
                     _R(c[0, z]*u[t, x+2, y+2, z] + c[1, z+1]*u[t, x+2, y+2, z+1]) +
                     _R(u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1]*3.) +
                     _R(u[t, x, y+3, z+1] + u[t, x+1, y+3, z+1]*3.)))
-        #TODO: The four ADDS aren't flattened
+
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced',
                                  {'openmp': True, 'min-storage': True,
@@ -712,7 +712,6 @@ class TestAliases(object):
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('cire-sops', {'openmp': True, 'min-storage': True}))
         op2 = Operator(eqn, opt=('advanced-fsg', {'openmp': True}))
-        from IPython import embed; embed()
 
         # Check code generation
         # `min-storage` leads to one 2D and one 3D Arrays
@@ -760,10 +759,11 @@ class TestAliases(object):
 
         op0 = Operator(eqns, opt=('advanced', {'min-storage': False, 'cire-mingain': 1}))
         op1 = Operator(eqns, opt=('advanced', {'min-storage': True, 'cire-mingain': 1}))
-        from IPython import embed; embed()
 
         # Check code generation
-        # min-storage has no effect in this example
+        assert len([i for i in FindSymbols().visit(op0) if i.is_Array]) == 4
+        # In particular, check that `min-storage` works, but has "no effect" in this
+        # example, in the sense that it produces the same code as default
         assert str(op0) == str(op1)
 
     @pytest.mark.parametrize('rotate', [False, True])
@@ -778,21 +778,19 @@ class TestAliases(object):
         d = Dimension(name='d')
 
         c = Function(name='c', grid=grid, shape=(2, 3), dimensions=(d, z))
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
 
         c.data_with_halo[:] = 1.
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 1.5
         u1.data_with_halo[:] = 1.5
 
         # Leads to 2D and 3D aliases
         eqn = Eq(u.forward,
-                 ((c[0, z]*u[t, x+1, y-1, z] + c[1, z+1]*u[t, x+1, y-1, z+1])*f +
-                  (c[0, z]*u[t, x+2, y-2, z] + c[1, z+1]*u[t, x+2, y-2, z+1])*f +
-                  (u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1])*3.*f +
-                  (u[t, x, y+3, z+2] + u[t, x+1, y+3, z+2])*3.*f),
+                 _R(_R(c[0, z]*u[t, x+1, y-1, z] + c[1, z+1]*u[t, x+1, y-1, z+1]) +
+                    _R(c[0, z]*u[t, x+2, y-2, z] + c[1, z+1]*u[t, x+2, y-2, z+1]) +
+                    _R(u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1])*3. +
+                    _R(u[t, x, y+3, z+2] + u[t, x+1, y+3, z+2])*3.),
                  subdomain=grid.interior)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
@@ -826,21 +824,19 @@ class TestAliases(object):
         d = Dimension(name='d')
 
         c = Function(name='c', grid=grid, shape=(2, 5), dimensions=(d, z))
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=4)
         u1 = TimeFunction(name='u1', grid=grid, space_order=4)
 
         c.data_with_halo[:] = 1.
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 1.5
         u1.data_with_halo[:] = 1.5
 
         # Leads to 3D aliases
         eqn = Eq(u.forward,
-                 ((c[0, z]*u[t, x+1, y, z] + c[1, z+1]*u[t, x+1, y, z+1])*f +
-                  (c[0, z]*u[t, x+2, y+2, z] + c[1, z+1]*u[t, x+2, y+2, z+1])*f +
-                  (u[t, x, y-4, z+1] + u[t, x+1, y-4, z+1])*3.*f +
-                  (u[t, x-1, y-3, z+1] + u[t, x, y-3, z+1])*3.*f))
+                 _R(_R(c[0, z]*u[t, x+1, y, z] + c[1, z+1]*u[t, x+1, y, z+1]) +
+                    _R(c[0, z]*u[t, x+2, y+2, z] + c[1, z+1]*u[t, x+2, y+2, z+1]) +
+                    _R(u[t, x, y-4, z+1] + u[t, x+1, y-4, z+1])*3. +
+                    _R(u[t, x-1, y-3, z+1] + u[t, x, y-3, z+1])*3.))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
@@ -874,22 +870,20 @@ class TestAliases(object):
         y_m = y.symbolic_min
         t = grid.stepping_dim
 
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 0.5
         u1.data_with_halo[:] = 0.5
 
         # Leads to 2D aliases
         eqn = Eq(u.forward,
-                 ((u[t, x_m+2, y, z] + u[t, x_m+3, y+1, z+1])*3.*f +
-                  (u[t, x_m+2, y+2, z+2] + u[t, x_m+3, y+3, z+3])*3.*f + 1 +
-                  (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f +  # Not an alias
-                  (u[t, x_m+1, y+2, z+2] + u[t, x_m+1, y+3, z+3])*3.*f +  # Yes, redundant
-                  (u[t, x+2, y_m+3, z+2] + u[t, x+3, y_m+3, z+3])*3.*f +
-                  (u[t, x+1, y_m+3, z+1] + u[t, x+2, y_m+3, z+2])*3.*f))
+                 _R(_R(u[t, x_m+2, y, z] + u[t, x_m+3, y+1, z+1])*3. +
+                    _R(u[t, x_m+2, y+2, z+2] + u[t, x_m+3, y+3, z+3])*3. + 1 +
+                    _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3. +  # N, not an alias
+                    _R(u[t, x_m+1, y+2, z+2] + u[t, x_m+1, y+3, z+3])*3. +  # Y, redundant
+                    _R(u[t, x+2, y_m+3, z+2] + u[t, x+3, y_m+3, z+3])*3. +
+                    _R(u[t, x+1, y_m+3, z+1] + u[t, x+2, y_m+3, z+2])*3.))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
@@ -921,11 +915,9 @@ class TestAliases(object):
         x, y, z = grid.dimensions
         t = grid.stepping_dim
 
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 2.
         u.data_with_halo[:] = 1.5
         u1.data_with_halo[:] = 1.5
 
@@ -933,9 +925,9 @@ class TestAliases(object):
         # Note: the outlier already touches the halo extremes, so it cannot
         # be computed in a loop with extra y-iterations, hence it must be ignored
         # while not compromising the detection of the two aliasing sub-expressions
-        eqn = Eq(u.forward, ((u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1])*3.*f +
-                             (u[t, x, y-3, z+1] + u[t, x+1, y+3, z+1])*3.*f +  # outlier
-                             (u[t, x, y+3, z+2] + u[t, x+1, y+3, z+2])*3.*f))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1])*3. +
+                               _R(u[t, x, y-3, z+1] + u[t, x+1, y+3, z+1])*3. +  # outlier
+                               _R(u[t, x, y+3, z+2] + u[t, x+1, y+3, z+2])*3.))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
@@ -1588,17 +1580,15 @@ class TestAliases(object):
         x, y, z = grid.dimensions
         t = grid.stepping_dim
 
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 0.5
         u1.data_with_halo[:] = 0.5
 
         # Leads to 3D aliases
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3.*f +
-                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z+1])*3. +
+                               _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3. + 1.))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced-fsg', {'openmp': True, 'cire-mingain': 0}))
