@@ -317,7 +317,6 @@ class TestSubDimension(object):
         u.data[0, 10, 10] = 1.0
 
         op = Operator([centre], opt=opt)
-        print(op.ccode)
 
         iterations = FindNodes(Iteration).visit(op)
         assert all(i.is_Affine and i.is_Parallel for i in iterations if i.dim in [xi, yi])

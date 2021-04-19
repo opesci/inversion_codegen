@@ -38,8 +38,6 @@ def run(shape=(50, 50, 50), spacing=(20.0, 20.0, 20.0), tn=1000.0,
     save = full_run and not checkpointing
     # Define receiver geometry (spread across x, just below surface)
     rec, u, summary = solver.forward(save=save, autotune=autotune)
-    print(norm(rec))
-    print(norm(u))
 
     if preset == 'constant':
         # With  a new m as Constant
@@ -71,7 +69,6 @@ def test_isoacoustic_stability(ndim, k):
     shape = tuple([11]*ndim)
     spacing = tuple([20]*ndim)
     _, _, _, [rec, _] = run(shape=shape, spacing=spacing, tn=20000.0, nbl=0, kernel=k)
-    print(norm(rec))
     assert np.isfinite(norm(rec))
 
 

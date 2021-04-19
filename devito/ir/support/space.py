@@ -119,12 +119,12 @@ class Interval(AbstractInterval):
 
     def __init__(self, dim, lower, upper, stamp=0):
         super(Interval, self).__init__(dim, stamp)
+
         try:
             self.lower = int(lower)
         except TypeError:
             assert isinstance(lower, Expr)
             self.lower = lower
-        
         try:
             self.upper = int(upper)
         except TypeError:

@@ -1,18 +1,13 @@
-from itertools import product
-
 import cgen
 
 from devito.ir.iet import (Expression, List, Prodder, FindNodes, FindSymbols,
-                           Transformer, make_efunc, compose_nodes, filter_iterations,
-                           retrieve_iteration_tree, Section)
-from devito.ir.equations import DummyEq
+                           Transformer, filter_iterations,
+                           retrieve_iteration_tree)
 from devito.passes.iet.engine import iet_pass
 from devito.symbolics import INT
-from devito.tools import flatten, is_integer, split
+from devito.tools import split
 from devito.logger import warning
 from sympy import Min, Max
-from devito.types import Scalar, Symbol
-import numpy as np
 
 __all__ = ['avoid_denormals', 'hoist_prodders', 'relax_incr_dimensions', 'is_on_device']
 
@@ -67,12 +62,9 @@ def relax_incr_dimensions(iet, **kwargs):
     ElementalCalls to iterate over the "main" and "remainder" regions induced
     by the IncrDimensions.
     """
-    sregistry = kwargs['sregistry']
-
     efuncs = []
     mapper = {}
     for tree in retrieve_iteration_tree(iet):
-        
         iterations = [i for i in tree if i.dim.is_Incr]
         if not iterations:
             continue
@@ -81,6 +73,7 @@ def relax_incr_dimensions(iet, **kwargs):
         if root in mapper:
             continue
 
+        # Split iterations to outer and inner
         outer, inner = split(iterations, lambda i: not i.dim.parent.is_Incr)
 
         # Compute the iteration ranges
@@ -96,71 +89,38 @@ def relax_incr_dimensions(iet, **kwargs):
                                     i.step))
                  for i in outer]
 
-
-        #[((x_m, x_M - Mod(x_M - x_m + 1, x0_blk0_size), x0_blk0_size), (x_M - Mod(x_M - x_m + 1, x0_blk0_size) + 1, x_M, Mod(x_M - x_m + 1, x0_blk0_size))), ((y_m, y_M - Mod(y_M - y_m + 1, y0_blk0_size), y0_blk0_size), (y_M - Mod(y_M - y_m + 1, y0_blk0_size) + 1, y_M, Mod(y_M - y_m + 1, y0_blk0_size)))]
-
-        # new_body = compose_nodes(outer)
         new_iters = []
         new_iters = [i for i in outer]
-        #inner[0].dim.root.symbolic_max + inner[0].symbolic_size - inner[0].symbolic_max + inner[0].symbolic_min
-
-
-        # if - i.dim.symbolic_max + i.dim.symbolic_size + i.dim.symbolic_min > 1
-        # b1+1
-        # i.dim.symbolic_max - i.symbolic_min > i.dim.symbolic_size
-
         nodes1 = []
-        nodes2 = []
         levels_max = {}
 
         for n, i in enumerate(inner):
 
-            b0a = i.dim.parent.symbolic_max - i.dim.parent.step - i.dim.symbolic_min + i.symbolic_size + i.symbolic_min
+            b0a = (i.dim.parent.symbolic_max - i.dim.parent.step -
+                   i.dim.symbolic_min + i.symbolic_size + i.symbolic_min)
 
             b0b = i.dim.parent.symbolic_max
 
             try:
-                rangemax = ranges[n][-1][1] 
+                rangemax = ranges[n][-1][1]
             except:
                 rangemax = b0b
 
-            b1 = Max( b0a, rangemax)
-          
+            b1 = Max(b0a, rangemax)
+
             if i.dim.parent in levels_max.keys() and i.symbolic_size <= i.dim.parent.step:
-                #b2 = Max(levels_max[i.dim.parent], i.symbolic_max)
                 b2 = levels_max[i.dim.parent]
-               
-                ub = Min(b2) #Min(i.symbolic_max, b2)
-                #ub = i.symbolic_max
+                ub = Min(b2)
             else:
                 ub = Min(i.symbolic_max, b1)
 
             levels_max[i.dim] = ub
 
-            #inner_start = Symbol(name="%s_lb" % i.dim.name, dtype=np.int32)
-            #lb_expr = Expression(DummyEq(inner_start, lb))
-            
             new_inner = i._rebuild(limits=(i.symbolic_min, INT(ub), i.step))
-            #nodes1.append(lb_expr)
-            nodes2.append(new_inner)
+            nodes1.append(new_inner)
             new_iters.append(i)
             mapper[i] = new_inner
             inner[n] = i._rebuild(limits=(i.symbolic_min, ub, i.step))
-
-        # nodes1body = compose_nodes(nodes1)
-
-        #root = inner[0]
-        #expr_body = compose_nodes(nodes1)
-        
-        #inner_body = compose_nodes(nodes2)
-        #nodes1.append(inner_body)
-
-
-
-        #test_1 = List(body= inner_body)
-
-        #mapper[root] = test_1
-
 
     iet = Transformer(mapper, nested=True).visit(iet)
 

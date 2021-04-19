@@ -180,14 +180,14 @@ def test_cache_blocking_structure_multiple_efuncs():
 
     op = Operator(eqns)
 
-    assert len(op._func_table) == 4
+    assert len(op._func_table) == 7
     iters = FindNodes(Iteration).visit(op)
-    assert len(iters) == 12
-    assert iters[1].dim.parent is x
-    assert iters[2].dim.parent is y
-    assert iters[5].dim is z
-    assert iters[3].dim.parent is iters[1].dim
+    assert len(iters) == 7
+    assert iters[2].dim.parent is x
+    assert iters[3].dim.parent is y
+    assert iters[6].dim is z
     assert iters[4].dim.parent is iters[2].dim
+    assert iters[5].dim.parent is iters[3].dim
 
 
 @pytest.mark.parametrize("shape", [(10,), (10, 45), (20, 33), (10, 31, 45), (45, 31, 45)])

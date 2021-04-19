@@ -40,17 +40,11 @@ class PragmaSimdTransformer(PragmaTransformer):
 
     @iet_pass
     def make_simd(self, iet):
-        tree_flags = []
         mapper = {}
-        treelist = retrieve_iteration_tree(iet)
-        sorted_treelist = sorted(treelist, key=len)
-        #for tree in reversed(sorted_treelist):
-        for tree in treelist:
+        for tree in retrieve_iteration_tree(iet):
             candidates = [i for i in tree if i.is_ParallelRelaxed]
             # As long as there's an outer level of parallelism, the innermost
             # PARALLEL Iteration gets vectorized
-
-            
             if len(candidates) < 2:
                 continue
             candidate = candidates[-1]
@@ -60,15 +54,6 @@ class PragmaSimdTransformer(PragmaTransformer):
             if not candidate.is_Parallel:
                 continue
 
-            #flag = 0
-            #for t_list in tree_flags:
-            #    if(all(x in t_list for x in candidates)):
-            #        flag = 1
-
-            #if flag:
-            #    continue
-
-            #tree_flags.append(candidates)
             # Add SIMD pragma
             aligned = [j for j in FindSymbols('symbolics').visit(candidate)
                        if j.is_DiscreteFunction]
@@ -84,8 +69,7 @@ class PragmaSimdTransformer(PragmaTransformer):
             properties = list(candidate.properties) + [VECTORIZED]
             mapper[candidate] = candidate._rebuild(pragmas=pragmas, properties=properties)
 
-
-        iet = Transformer(mapper, nested=True).visit(iet)
+        iet = Transformer(mapper).visit(iet)
 
         return iet, {}
 
