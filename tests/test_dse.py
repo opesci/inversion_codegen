@@ -1902,13 +1902,12 @@ class TestAliases(object):
             for i, exp in enumerate(as_tuple(exp_ops[n])):
                 assert summary[('section%d' % i, None)].ops == exp
 
-    @pytest.mark.xfail(reason="Cannot deal with multi-level aliases yet")
     def test_derivatives_from_different_levels(self):
         """
         Test catching of derivatives nested at different levels of the
         expression tree.
         """
-        grid = Grid(shape=(10, 10, 10))
+        grid = Grid(shape=(10, 10))
 
         f = Function(name='f', grid=grid, space_order=4)
         v = TimeFunction(name="v", grid=grid, space_order=4)
@@ -1918,12 +1917,12 @@ class TestAliases(object):
         v.data_with_halo[:] = 1.2
         v1.data_with_halo[:] = 1.2
 
-        eqn = Eq(v.forward, f*(1 + v).dx + 2*f*((1 + v).dx + f))
+        eqn = Eq(v.forward, f*(1. + v).dx + 2.*f*((1. + v).dx + f))
 
-        op = Operator(eqn, opt=('advanced', {'cire-mingain': 3}))
+        op = Operator(eqn, opt=('advanced', {'cire-mingain': 0}))
 
         # Check code generation
-        assert len([i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array])
+        assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 1
 
     @pytest.mark.parametrize('rotate', [False, True])
     def test_maxpar_option(self, rotate):
