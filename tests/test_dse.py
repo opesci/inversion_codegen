@@ -9,7 +9,7 @@ from devito import (NODE, Eq, Inc, Constant, Function, TimeFunction, SparseTimeF
                     Operator, norm, grad, div, dimensions, switchconfig, configuration,
                     centered, first_derivative, solve, transpose, cos, sin, sqrt)
 from devito.exceptions import InvalidArgument, InvalidOperator
-from devito.finite_differences.differentiable import EvalDiffDerivative, diffify
+from devito.finite_differences.differentiable import EvalDerivative, diffify
 from devito.ir import (Conditional, DummyEq, Expression, Iteration, FindNodes,
                        FindSymbols, ParallelIteration, retrieve_iteration_tree)
 from devito.passes.clusters.aliases import collect
@@ -675,7 +675,6 @@ class TestAliases(object):
         op1 = Operator(eqn, opt=('advanced',
                                  {'openmp': True, 'min-storage': True,
                                   'cire-mingain': 0, 'cire-rotate': rotate}))
-        from IPython import embed; embed()
 
         # Check code generation
         assert len(op1._func_table) == 1
@@ -2401,15 +2400,15 @@ class TestTTIv2(object):
 def _R(expr):
     """
     Originally Devito searched for sum-of-products in the Eq's, while now
-    it searches for Derivatives (or, to be more precise, EvalDiffDerivative).
+    it searches for Derivatives (or, to be more precise, EvalDerivative).
     However, far too many tests were written with artificial sum-of-products
     as input (rather than actual FD derivative expressions), so here we "fake"
     such expressions as derivatives.
     """
-    if any(a.has(EvalDiffDerivative) for a in expr.args):
+    if any(a.has(EvalDerivative) for a in expr.args):
         base = expr
     else:
         base = {i.function for i in expr.free_symbols if i.function.is_TimeFunction}
         assert len(base) == 1
         base = base.pop()
-    return EvalDiffDerivative(*expr.args, base=base)
+    return EvalDerivative(*expr.args, base=base)

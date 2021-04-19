@@ -8,11 +8,11 @@ from sympy.core.evalf import evalf_table
 from cached_property import cached_property
 from devito.finite_differences.tools import make_shift_x0
 from devito.logger import warning
-from devito.tools import filter_ordered, flatten
+from devito.tools import filter_ordered, flatten, split
 from devito.types.lazy import Evaluable
 from devito.types.utils import DimensionTuple
 
-__all__ = ['Differentiable', 'EvalDiffDerivative']
+__all__ = ['Differentiable', 'EvalDerivative']
 
 
 class Differentiable(sympy.Expr, Evaluable):
@@ -369,13 +369,20 @@ class DifferentiableFunction(DifferentiableOp):
 class Add(DifferentiableOp, sympy.Add):
     __sympy_class__ = sympy.Add
 
+    def __new__(cls, *args, **kwargs):
+        # Flatten e.g. Add(Add(...), ...) due to unevaluation of ops over EvalDerivative
+        nested, others = split(args, lambda e: isinstance(e, Add))
+        args = flatten(e.args for e in nested) + list(others)
+        
+        return super().__new__(cls, *args, **kwargs)
+
 
 class Mul(DifferentiableOp, sympy.Mul):
     __sympy_class__ = sympy.Mul
 
     def __new__(cls, *args, **kwargs):
         # A DifferentiableOp may not trigger evaluation upon construction
-        # (e.g., if an EvalDiffDerivative is present among the arguments)
+        # (e.g., if an EvalDerivative is present among the arguments)
         # So we treat some special cases here
 
         # a*0 -> 0
@@ -449,7 +456,7 @@ class EvalDerivative(DifferentiableOp, sympy.Add):
 
     @property
     def func(self):
-        return lambda *a, **kw: EvalDiffDerivative(*a, base=self.base, **kw)
+        return lambda *a, **kw: EvalDerivative(*a, base=self.base, **kw)
 
     def _new_rawargs(self, *args, **kwargs):
         return self.func(*args, **kwargs)
