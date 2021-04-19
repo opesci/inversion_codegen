@@ -1702,14 +1702,15 @@ class TestAliases(object):
                        opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                          'cire-rotate': rotate}))
 
+        # Check code generation
+        assert summary[('section1', None)].ops == exp_ops
+        arrays = [i for i in FindSymbols().visit(op1._func_table['bf0']) if i.is_Array]
+        assert len(arrays) == 1
+
         # Check numerical output
         op0(time_M=1)
         summary = op1(time_M=1, r=r1)
         assert np.isclose(norm(r), norm(r1), rtol=1e-5)
-
-        # Also check against expected operation count to make sure
-        # all redundancies have been detected correctly
-        assert summary[('section1', None)].ops == exp_ops
 
     @switchconfig(profiling='advanced')
     def test_tti_adjoint_akin_v2(self):
