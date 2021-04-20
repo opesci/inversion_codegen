@@ -142,7 +142,8 @@ def test_mixed_blocking_w_skewing(openmp, expected):
         assert 'nthreads' not in op._state['autotuning'][0]['tuned']
 
 
-@pytest.mark.parametrize('opt, expected', [('advanced', 60), (('blocking', {'skewing': True}), 30)])
+@pytest.mark.parametrize('opt, expected', [('advanced', 60),
+                                           (('blocking', {'skewing': True}), 30)])
 def test_tti_aggressive(opt, expected):
     from test_dse import TestTTI
     wave_solver = TestTTI().tti_operator(opt=opt)
@@ -160,18 +161,18 @@ def test_discarding_runs():
                   opt=('advanced', {'openmp': True, 'par-collapse-ncores': 1}))
     op.apply(time=100, nthreads=4, autotune='aggressive')
 
-    assert op._state['autotuning']['runs'] == 18
-    assert op._state['autotuning']['tpr'] == options['squeezer'] + 1
-    assert len(op._state['autotuning']['tuned']) == 3
-    assert op._state['autotuning']['tuned']['nthreads'] == 4
+    assert op._state['autotuning'][0]['runs'] == 18
+    assert op._state['autotuning'][0]['tpr'] == options['squeezer'] + 1
+    assert len(op._state['autotuning'][0]['tuned']) == 3
+    assert op._state['autotuning'][0]['tuned']['nthreads'] == 4
 
     # With 1 < 4 threads, the AT eventually tries many more combinations
     op.apply(time=100, nthreads=1, autotune='aggressive')
 
-    assert op._state['autotuning']['runs'] == 25
-    assert op._state['autotuning']['tpr'] == options['squeezer'] + 1
-    assert len(op._state['autotuning']['tuned']) == 3
-    assert op._state['autotuning']['tuned']['nthreads'] == 1
+    assert op._state['autotuning'][1]['runs'] == 25
+    assert op._state['autotuning'][1]['tpr'] == options['squeezer'] + 1
+    assert len(op._state['autotuning'][1]['tuned']) == 3
+    assert op._state['autotuning'][1]['tuned']['nthreads'] == 1
 
 
 @skipif('nompi')
@@ -198,13 +199,12 @@ def test_at_w_mpi():
     # to perform the autotuning. Eventually, the result is complete garbage; note
     # also that this autotuning mode disables the halo exchanges
     op.apply(time=-1, autotune=('basic', 'destructive'))
-    
-    if configuration['mpi'] is 'diag':
+
+    if configuration['mpi'] == 'diag':
         assert np.all(f._data_ro_with_inhalo.sum() == 904)
-    elif configuration['mpi'] is 'full':
+    elif configuration['mpi'] == 'full':
         assert np.all(f._data_ro_with_inhalo.sum() == 6056)
-    
-    
+
     # Check the halo hasn't been touched during AT
     glb_pos_map = grid.distributor.glb_pos_map
     if LEFT in glb_pos_map[x]:
