@@ -1,9 +1,10 @@
-from collections import OrderedDict, defaultdict, namedtuple
-from functools import partial
+from collections import Counter, OrderedDict, defaultdict, namedtuple
+from functools import partial, singledispatch
 from itertools import groupby
 
 from cached_property import cached_property
 import numpy as np
+import sympy
 
 from devito.finite_differences import EvalDerivative
 from devito.ir import (SEQUENTIAL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
@@ -12,11 +13,12 @@ from devito.ir import (SEQUENTIAL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
                        detect_accesses, build_intervals, normalize_properties,
                        relax_properties)
 from devito.passes.clusters.utils import timed_pass
-from devito.symbolics import (Uxmapper, compare_ops, estimate_cost, q_constant,
-                              q_leaf, retrieve_indexed, search, uxreplace)
+from devito.symbolics import (Uxmapper, compare_ops, count, estimate_cost, q_constant,
+                              q_leaf, rebuild_if_untouched, retrieve_indexed,
+                              search, uxreplace)
 from devito.tools import as_mapper, as_tuple, flatten, frozendict, generator, split
 from devito.types import (Array, TempFunction, Eq, Symbol, ModuloDimension,
-                          CustomDimension, IncrDimension)
+                          CustomDimension, IncrDimension, Indexed)
 
 __all__ = ['cire']
 
@@ -240,7 +242,7 @@ class CireSops(CireTransformer):
         super().__init__(sregistry, options, platform)
 
         self.opt_maxpar = options['cire-maxpar']
-        self.opt_maxalias = options['cire-maxalias']
+        self.opt_maxalias = options['cire-maxalias']  #TODO: DROP!!
 
     def process(self, clusters):
         processed = []
@@ -264,7 +266,7 @@ class CireSops(CireTransformer):
 
     @property
     def _generators(self):
-        return (GeneratorDerivatives,)  #TODO: ADD GeneratorDerivativesMaxAlias
+        return (GeneratorDerivativeCompounds,)#(GeneratorDerivative, GeneratorDerivativeCompounds)
 
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
@@ -343,7 +345,7 @@ class GeneratorExpensiveCompounds(GeneratorExpensive):
         return split(expr.args, lambda a: a in basextr)[0]
 
 
-class GeneratorDerivatives(Generator):
+class GeneratorDerivative(Generator):
 
     @classmethod
     def _search(cls, expr, *args):
@@ -357,25 +359,37 @@ class GeneratorDerivatives(Generator):
         return split_coeff(expr)[1]
 
 
-class GeneratorDerivativesMaxAlias(GeneratorDerivatives):
-    pass
+class GeneratorDerivativeCompounds(GeneratorDerivative):
 
-#    key = lambda a: a.is_Add
-#    terms, others = split(i.args, key)
-#
-#    if maxalias:
-#        # Treat `e` as an FD expression and pull out the derivative
-#        # coefficient from `i`
-#        # Note: typically derivative coefficients are numbers, but
-#        # sometimes they could be provided in symbolic form through an
-#        # arbitrary Function.  In the latter case, we rely on the
-#        # heuristic that such Function's basically never span the whole
-#        # grid, but rather a single Grid dimension (e.g., `c[z, n]` for a
-#        # stencil of diameter `n` along `z`)
-#        if e.grid is not None and terms:
-#            key = partial(maybe_coeff_key, e.grid)
-#            others, more_terms = split(others, key)
-#            terms += more_terms
+    @classmethod
+    def _basextr(cls, exprs, exclude, make):
+        basextr = cls.__base__.generate(exprs, exclude, make)
+
+        # Find the largest de-indexified sub-expressions redundantly
+        # appearing across multiple exprs
+        mappers = [deindexify(e) for e in basextr.extracted]
+
+        # Sort by occurrences and costs
+        counter = Counter(flatten(m.keys() for m in mappers))
+        rank = sorted(counter, key=lambda e: (counter[e], estimate_cost(e)), reverse=True)
+
+        return rank
+
+    @classmethod
+    def _search(cls, expr, basextr):
+        found = cls.__base__._search(expr)
+
+        ret = []
+        for e in found:
+            mapper = deindexify(e)
+            for i in basextr:
+                try:
+                    ret.append(mapper[i])
+                    break
+                except KeyError:
+                    pass
+
+        return ret
 
 
 def collect(extracted, ispace, minstorage, mingain):
@@ -1267,3 +1281,40 @@ def wset(exprs):
     """
     return {i.function for i in flatten([e.free_symbols for e in as_tuple(exprs)])
             if i.function.is_AbstractFunction}
+
+
+def deindexify(expr):
+    """
+    Strip away Indexed and indices from an expression, turning them into Functions.
+    This means that e.g. `deindexify(f[x+2]*3) == deindexify(f[x-4]*3) == f(x)*3`.
+    This function returns a mapper that binds the de-indexified sub-expressions to
+    the original counterparts.
+    """
+    return _deindexify(expr)[1]
+
+
+@singledispatch
+def _deindexify(expr):
+    args = []
+    mapper = {}
+    for a in expr.args:
+        arg, m = _deindexify(a)
+        args.append(arg)
+        mapper.update(m)
+
+    rexpr = rebuild_if_untouched(expr, args)
+    mapper[rexpr] = expr
+
+    return rexpr, mapper
+
+
+@_deindexify.register(sympy.Number)
+@_deindexify.register(sympy.Symbol)
+@_deindexify.register(sympy.Function)
+def _(expr):
+    return expr, {}
+
+
+@_deindexify.register(Indexed)
+def _(expr):
+    return expr.function, {}
