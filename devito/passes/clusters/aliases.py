@@ -266,7 +266,8 @@ class CireSops(CireTransformer):
 
     @property
     def _generators(self):
-        return (GeneratorDerivativeCompounds,)#(GeneratorDerivative, GeneratorDerivativeCompounds)
+        return (GeneratorDerivativeCompounds,)
+        #return (GeneratorDerivative, GeneratorDerivativeCompounds)
 
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
@@ -383,11 +384,9 @@ class GeneratorDerivativeCompounds(GeneratorDerivative):
         for e in found:
             mapper = deindexify(e)
             for i in basextr:
-                try:
-                    ret.append(mapper[i])
+                if i in mapper:
+                    ret.extend(mapper[i])
                     break
-                except KeyError:
-                    pass
 
         return ret
 
@@ -1296,14 +1295,15 @@ def deindexify(expr):
 @singledispatch
 def _deindexify(expr):
     args = []
-    mapper = {}
+    mapper = defaultdict(list)
     for a in expr.args:
         arg, m = _deindexify(a)
         args.append(arg)
-        mapper.update(m)
+        for k, v in m.items():
+            mapper[k].extend(v)
 
     rexpr = rebuild_if_untouched(expr, args)
-    mapper[rexpr] = expr
+    mapper[rexpr] = [expr]
 
     return rexpr, mapper
 
