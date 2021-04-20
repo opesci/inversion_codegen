@@ -205,7 +205,7 @@ class Cpu64AdvOperator(Cpu64OperatorMixin, CoreOperator):
             mpiize(graph, mode=options['mpi'])
 
         # Lower IncrDimensions so that blocks of arbitrary shape may be used
-        relax_incr_dimensions(graph, sregistry=sregistry)
+        relax_incr_dimensions(graph)
 
         # Parallelism
         parizer = cls._Target.Parizer(sregistry, options, platform)

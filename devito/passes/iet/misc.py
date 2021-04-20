@@ -1,13 +1,13 @@
 import cgen
 
+from sympy import Min, Max
+
 from devito.ir.iet import (Expression, List, Prodder, FindNodes, FindSymbols,
-                           Transformer, filter_iterations,
-                           retrieve_iteration_tree)
+                           Transformer, filter_iterations, retrieve_iteration_tree)
+from devito.logger import warning
 from devito.passes.iet.engine import iet_pass
 from devito.symbolics import INT
 from devito.tools import split
-from devito.logger import warning
-from sympy import Min, Max
 
 __all__ = ['avoid_denormals', 'hoist_prodders', 'relax_incr_dimensions', 'is_on_device']
 
@@ -58,9 +58,8 @@ def hoist_prodders(iet):
 @iet_pass
 def relax_incr_dimensions(iet, **kwargs):
     """
-    Recast Iterations over IncrDimensions as ElementalFunctions; insert
-    ElementalCalls to iterate over the "main" and "remainder" regions induced
-    by the IncrDimensions.
+    Recast Iteration bounds using min/max conditions to iterate over the
+    domain. This function sets the limits of a tree's Iterations.
     """
     efuncs = []
     mapper = {}
@@ -76,51 +75,53 @@ def relax_incr_dimensions(iet, **kwargs):
         # Split iterations to outer and inner
         outer, inner = split(iterations, lambda i: not i.dim.parent.is_Incr)
 
-        # Compute the iteration ranges
-        ranges = []
+        # Get symbolic_max out of each outer dimension
+        ranges = {}
         for i in outer:
-            maxb = i.symbolic_max - (i.symbolic_size % i.dim.step)
-            ranges.append(((i.symbolic_min, maxb, i.dim.step),
-                           (maxb + 1, i.symbolic_max, i.symbolic_max - maxb)))
+            ranges[i.dim.root] = i.symbolic_max
 
-        # Remove any offsets
-        # E.g., `x = x_m + 2 to x_M - 2` --> `x = x_m to x_M`
-        outer = [i._rebuild(limits=(i.dim.root.symbolic_min, i.dim.root.symbolic_max,
-                                    i.step))
-                 for i in outer]
+        # A dictionary to map maximum of parent dimensions
+        # useful for hierarchical blocking
+        proc_parents_max = {}
 
-        new_iters = []
-        new_iters = [i for i in outer]
-        nodes1 = []
-        levels_max = {}
-
+        # Process inner iterations
         for n, i in enumerate(inner):
 
-            b0a = (i.dim.parent.symbolic_max - i.dim.parent.step -
-                   i.dim.symbolic_min + i.symbolic_size + i.symbolic_min)
+            # Candidate 1: Retrieve parent's max from outer limits
+            parent_max = ranges[i.dim.root]
 
-            b0b = i.dim.parent.symbolic_max
+            # Candidate 2: The symbolic_size of an inner Iteration
+            # may exceed the size of a parent's
+            # block size. Proper margin should be allowed
+            # For cases where upperbound - lowerbound > block_size:
+            # i.symbolic_size > i.dim.parent.step
+            low_margin = i.symbolic_min - i.dim.symbolic_min
+            size_extent = i.symbolic_size - i.dim.parent.step
 
-            try:
-                rangemax = ranges[n][-1][1]
-            except:
-                rangemax = b0b
+            upper_ext = i.dim.parent.symbolic_max + size_extent + low_margin
 
-            b1 = Max(b0a, rangemax)
+            # Maximum of upper bound candidates
+            it_max = Max(upper_ext, parent_max)
 
-            if i.dim.parent in levels_max.keys() and i.symbolic_size <= i.dim.parent.step:
-                b2 = levels_max[i.dim.parent]
-                ub = Min(b2)
+            # In case of hierarchical blocking we should take care not to exceed the
+            # maximum of the parent dimension.
+            # In case parent dim has been processed in the current tree:
+            # if iteration size < parent block_size/step
+            #    upper bound is the parent_max
+            # else/otherwise
+            #    upper bound is the minimum of it_max and parent_max
+
+            if (i.dim.parent in proc_parents_max.keys() and
+               i.symbolic_size <= i.dim.parent.step):
+                upper_bound = Min(proc_parents_max[i.dim.parent])
             else:
-                ub = Min(i.symbolic_max, b1)
+                upper_bound = Min(i.symbolic_max, it_max)
 
-            levels_max[i.dim] = ub
+            # Store selected maximum of this iteration's dimension for
+            # children iteration reference in hierarchical blocking
+            proc_parents_max[i.dim] = upper_bound
 
-            new_inner = i._rebuild(limits=(i.symbolic_min, INT(ub), i.step))
-            nodes1.append(new_inner)
-            new_iters.append(i)
-            mapper[i] = new_inner
-            inner[n] = i._rebuild(limits=(i.symbolic_min, ub, i.step))
+            mapper[i] = i._rebuild(limits=(i.symbolic_min, INT(upper_bound), i.step))
 
     iet = Transformer(mapper, nested=True).visit(iet)
 

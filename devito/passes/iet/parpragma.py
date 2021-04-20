@@ -48,7 +48,6 @@ class PragmaSimdTransformer(PragmaTransformer):
             if len(candidates) < 2:
                 continue
             candidate = candidates[-1]
-
             # Only fully-parallel Iterations will be SIMD-ized (ParallelRelaxed
             # might not be enough then)
             if not candidate.is_Parallel:

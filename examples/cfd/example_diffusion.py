@@ -134,7 +134,7 @@ def execute_devito(ui, spacing=0.01, a=0.5, timesteps=500):
     # Derive the stencil according to devito conventions
     eqn = Eq(u.dt, a * (u.dx2 + u.dy2))
     stencil = solve(eqn, u.forward)
-    op = Operator(Eq(u.forward, stencil), opt=('blocking', {'skewing': True}))
+    op = Operator(Eq(u.forward, stencil))
 
     # Execute the generated Devito stencil operator
     tstart = time.time()
