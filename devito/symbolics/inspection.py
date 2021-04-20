@@ -56,7 +56,7 @@ def count(exprs, query):
     matching ``query`` and ``v`` is the number of its occurrences.
     """
     mapper = Counter()
-    for expr in exprs:
+    for expr in as_tuple(exprs):
         mapper.update(Counter(search(expr, query, 'all', 'bfs')))
     return dict(mapper)
 
