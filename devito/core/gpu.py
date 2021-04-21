@@ -62,7 +62,6 @@ class DeviceOperatorMixin(object):
         o['min-storage'] = False
         o['cire-rotate'] = False
         o['cire-maxpar'] = oo.pop('cire-maxpar', True)
-        o['cire-maxalias'] = oo.pop('cire-maxalias', False)
         o['cire-ftemps'] = oo.pop('cire-ftemps', False)
         o['cire-mingain'] = oo.pop('cire-mingain', cls.CIRE_MINGAIN)
 
