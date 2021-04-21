@@ -54,20 +54,6 @@ def check_input(func):
     return wrapper
 
 
-def check_symbolic(func):
-    @wraps(func)
-    def wrapper(expr, *args, **kwargs):
-        if expr._uses_symbolic_coefficients:
-            expr_dict = expr.as_coefficients_dict()
-            if any(len(expr_dict) > 1 for item in expr_dict):
-                raise NotImplementedError("Applying the chain rule to functions "
-                                          "with symbolic coefficients is not currently "
-                                          "supported")
-        kwargs['symbolic'] = expr._uses_symbolic_coefficients
-        return func(expr, *args, **kwargs)
-    return wrapper
-
-
 def dim_with_order(dims, orders):
     """
     Create all possible derivative order for each dims

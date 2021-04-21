@@ -5,7 +5,6 @@ from sympy.solvers.solveset import linear_coeffs
 
 from cached_property import cached_property
 
-from devito.finite_differences import default_rules
 from devito.logger import warning
 from devito.tools import as_tuple
 from devito.types.lazy import Evaluable
