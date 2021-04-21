@@ -42,7 +42,7 @@ def cire(clusters, mode, sregistry, options, platform):
         The symbol registry, to create unique temporary names.
     options : dict
         The optimization options.
-        Accepted: ['min-storage', 'cire-maxpar', 'cire-rotate', 'cire-maxalias'].
+        Accepted: ['min-storage', 'cire-maxpar', 'cire-rotate'].
         * 'min-storage': if True, the pass will try to minimize the amount of
           storage introduced for the tensor temporaries. This might also reduce
           the operation count. On the other hand, this might affect fusion and
@@ -54,9 +54,6 @@ def cire(clusters, mode, sregistry, options, platform):
         * 'cire-rotate': if True, the pass will use modulo indexing for the
           outermost Dimension iterated over by the temporaries. This will sacrifice
           a parallel loop for a reduced working set size. Defaults to False (legacy).
-        * 'cire-maxalias': if True, capture the largest redundancies. This will
-          minimize the flop count while maximizing the number of tensor temporaries,
-          thus increasing the working set size.
     platform : Platform
         The underlying platform. Used to optimize the shape of the introduced
         tensor symbols.
@@ -190,7 +187,6 @@ class CireInvariants(CireTransformer, Queue):
         super().__init__(sregistry, options, platform)
 
         self.opt_maxpar = True
-        self.opt_maxalias = False
 
     def process(self, clusters):
         return self._process_fatd(clusters, 1, xtracted=[])
@@ -242,7 +238,6 @@ class CireSops(CireTransformer):
         super().__init__(sregistry, options, platform)
 
         self.opt_maxpar = options['cire-maxpar']
-        self.opt_maxalias = options['cire-maxalias']  #TODO: DROP!!
 
     def process(self, clusters):
         processed = []
