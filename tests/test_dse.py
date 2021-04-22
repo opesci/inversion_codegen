@@ -1765,7 +1765,7 @@ class TestAliases(object):
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
-        assert summary[('section1', None)].ops == 80
+        assert summary[('section1', None)].ops == 75
 
     @pytest.mark.parametrize('rotate', [False, True])
     @switchconfig(profiling='advanced')
@@ -1864,10 +1864,9 @@ class TestAliases(object):
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('collect-derivs', 'cire-sops', {'openmp': True}))
-        op2 = Operator(eqn, opt=('collect-derivs', 'cire-sops', {'openmp': True,
-                                                                 'cire-maxalias': True}))
-        op3 = Operator(eqn, opt=('cire-sops', {'openmp': True, 'cire-maxalias': True}))
-        op4 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-maxalias': True}))
+        op2 = Operator(eqn, opt=('collect-derivs', 'cire-sops', {'openmp': True}))
+        op3 = Operator(eqn, opt=('cire-sops', {'openmp': True}))
+        op4 = Operator(eqn, opt=('advanced', {'openmp': True}))
 
         # Check code generation
         arrays = [i for i in FindSymbols().visit(op1) if i.is_Array]

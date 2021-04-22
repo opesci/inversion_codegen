@@ -103,29 +103,32 @@ class CireTransformer(object):
         self.opt_mingain = options['cire-mingain']
 
     def _aliases_from_clusters(self, clusters, exclude, meta):
-        # [Clusters]_n -> [AliasList]_m
+        # [Clusters]_n -> [Schedule]_m
         variants = []
         for g in self._generators:
             exprs = flatten([c.exprs for c in clusters])
 
+            # Clusters -> AliasList
             mapper = g.generate(exprs, exclude)
-
             found = collect(mapper.extracted, meta.ispace,
                             self.opt_minstorage, self.opt_mingain)
-
+            #TODO: RENAME EXPRS, MOVE the "real input exprs" outside of this loop
             exprs, aliases = choose(found, exprs, mapper)
+            if not aliases:
+                continue
 
-            if aliases:
-                variants.append(SpacePoint(aliases, exprs))
+            # AliasList -> Schedule
+            #TODO: ADD score to Schedule
+            schedule = lower_aliases(aliases, meta, self.opt_maxpar)
 
-        # [AliasList]_m -> AliasList (s.t. best memory/flops trade-off)
+            variants.append(Variant(schedule, exprs))
+
+        # [Schedule]_m -> Schedule (s.t. best memory/flops trade-off)
         try:
-            aliases, exprs = pick_best(variants)
+            #TODO" USE SCHEDULE'S SCORE TO PICK BEST VARIANT
+            schedule, exprs = pick_best(variants)
         except IndexError:
             return []
-
-        # AliasList -> Schedule
-        schedule = lower_aliases(aliases, meta, self.opt_maxpar)
 
         # Schedule -> Schedule (optimization)
         if self.opt_rotate:
@@ -261,8 +264,7 @@ class CireSops(CireTransformer):
 
     @property
     def _generators(self):
-        return (GeneratorDerivativeCompounds,)
-        #return (GeneratorDerivative, GeneratorDerivativeCompounds)
+        return (GeneratorDerivative, GeneratorDerivativeCompounds)
 
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
@@ -559,6 +561,7 @@ def collect(extracted, ispace, minstorage, mingain):
                 score = estimate_cost(pivot, True)*((na - 1) + nr) // mingain
             except ZeroDivisionError:
                 score = np.inf
+            from IPython import embed; embed()
             if score > 0:
                 aliases.add(pivot, aliaseds, list(mapper), distances, score)
 
@@ -689,7 +692,8 @@ def lower_aliases(aliases, meta, maxpar):
                                 meta.ispace.directions)
         ispace = ispace.augment(sub_iterators)
 
-        processed.append(ScheduledAlias(a.pivot, writeto, ispace, a.aliaseds, indicess))
+        processed.append(ScheduledAlias(a.pivot, writeto, ispace, a.aliaseds,
+                                        indicess, a.score))
 
     # The [ScheduledAliases] must be ordered so as to reuse as many of the
     # `ispace`'s IterationIntervals as possible in order to honor the
@@ -772,7 +776,8 @@ def optimize_schedule_rotations(schedule, sregistry):
             aispace = aispace.augment({d: mds + [ii]})
             ispace = IterationSpace.union(rispace, aispace)
 
-            processed.append(ScheduledAlias(pivot, writeto, ispace, i.aliaseds, indicess))
+            processed.append(ScheduledAlias(pivot, writeto, ispace, i.aliaseds,
+                                            indicess, i.score))
 
         # Update the rotations mapper
         rmapper[d].extend(list(mapper.values()))
@@ -796,7 +801,7 @@ def optimize_schedule_padding(schedule, meta, platform):
             else:
                 ispace = i.ispace
             processed.append(ScheduledAlias(i.pivot, i.writeto, ispace, i.aliaseds,
-                                            i.indicess))
+                                            i.indicess, i.score))
         except (TypeError, KeyError, IndexError):
             processed.append(i)
 
@@ -815,7 +820,7 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
 
     clusters = []
     subs = {}
-    for pivot, writeto, ispace, aliaseds, indicess in schedule:
+    for pivot, writeto, ispace, aliaseds, indicess, _ in schedule:
         name = sregistry.make_name()
         dtype = meta.dtype
 
@@ -887,25 +892,29 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
 
 def pick_best(variants):
     """
-    Use the variant score and heuristics to return the variant with the best
-    trade-off between operation count reduction and working set increase.
+    Return the variant with the best trade-off between operation count
+    reduction and working set increase. Heuristics may be applied.
     """
     best = variants.pop(0)
     for i in variants:
-        best_flop_score, best_ws_score = best.aliases.score
+        best_flop_score, best_ws_score = best.schedule.score
         if best_flop_score == 0:
             best = i
             continue
 
-        i_flop_score, i_ws_score = i.aliases.score
+        i_flop_score, i_ws_score = i.schedule.score
 
-        # The current heustic is fairly basic: the one with smaller working
-        # set size increase wins, unless there's a massive reduction in operation
-        # count in the other one
+        # 1) We assume the performance impact of an N-dimensional temporary
+        #    is always the same regardless of the value N
+        best_ws_score = sum(best_ws_score)
+        i_ws_score = sum(i_ws_score)
+
+        # 2) The variant with the smaller working set size increase wins unless
+        # there's a significant reduction in operation count in the other one
         delta = i_ws_score - best_ws_score
-        if (delta > 0 and i_flop_score / best_flop_score > 100) or \
+        if (delta > 0 and i_flop_score / best_flop_score > 1.3) or \
            (delta == 0 and i_flop_score > best_flop_score) or \
-           (delta < 0 and best_flop_score / i_flop_score <= 100):
+           (delta < 0 and best_flop_score / i_flop_score <= 1.3):
             best = i
 
     return best
@@ -1117,11 +1126,7 @@ class Group(tuple):
 
 
 AliasKey = namedtuple('AliasKey', 'ispace dintervals dtype guards properties')
-
-ScheduledAlias = namedtuple('ScheduledAlias', 'pivot writeto ispace aliaseds indicess')
-ScheduledAlias.__new__.__defaults__ = (None,) * len(ScheduledAlias._fields)
-
-SpacePoint = namedtuple('SpacePoint', 'aliases exprs')
+Variant = namedtuple('Variant', 'schedule exprs')
 
 
 class Alias(object):
@@ -1139,10 +1144,6 @@ class Alias(object):
     @property
     def free_symbols(self):
         return self.pivot.free_symbols
-
-    @property
-    def is_scalar(self):
-        return not any(i.is_Dimension for i in self.free_symbols)
 
     @property
     def naliases(self):
@@ -1186,12 +1187,9 @@ class AliasList(object):
     def aliaseds(self):
         return flatten(i.aliaseds for i in self._list)
 
-    @property
-    def score(self):
-        # The score is a 2-tuple <flop-reduction-score, workin-set-score>
-        flop_score = sum(i.score for i in self._list)
-        ws_score = len([i for i in self if not i.is_scalar])
-        return flop_score, ws_score
+
+ScheduledAlias = namedtuple('SchedAlias', 'pivot writeto ispace aliaseds indicess score')
+ScheduledAlias.__new__.__defaults__ = (None,) * len(ScheduledAlias._fields)  #TODO: DROP?
 
 
 class Schedule(tuple):
@@ -1201,6 +1199,17 @@ class Schedule(tuple):
         obj.dmapper = dmapper or {}
         obj.rmapper = rmapper or {}
         return obj
+
+    @property
+    def score(self):
+        # Tot flop reduction
+        flop_score = sum(i.score for i in self)
+
+        # Dimensionality impacts the working set score
+        ws_count = Counter([len(i.writeto) for i in self])
+        ws_score = tuple(ws_count[i + 1] for i in reversed(range(max(ws_count))))
+
+        return flop_score, ws_score
 
 
 def make_rotations_table(d, v):
