@@ -1403,8 +1403,7 @@ class TestAliases(object):
 
     def test_lazy_solve_produces_larger_temps(self):
         """
-        Test that after turning `solve` into a lazily evaluated object,
-        larger temporaries are caught, thus minimising the operation count.
+        Test that using `solve` doesn't affect CIRE.
         """
         grid = Grid(shape=(10, 10))
 
@@ -1413,15 +1412,10 @@ class TestAliases(object):
         pde = u.dt2 - (u.dx.dx + u.dy.dy) + u.dx.dy
         eq = Eq(u.forward, solve(pde, u.forward))
 
-        op0 = Operator(eq)
-        op1 = Operator(eq.evaluate)
+        op = Operator(eq)
 
-        assert len([i for i in FindSymbols().visit(op0) if i.is_Array]) == 2
-        assert len([i for i in FindSymbols().visit(op1) if i.is_Array]) == 2
-
-        # Note: the effect may be more pronounced in "less artificial" examples
-        assert op0._profiler._sections['section0'].sops == 37
-        assert op1._profiler._sections['section0'].sops == 40
+        assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 2
+        assert op._profiler._sections['section0'].sops == 41
 
     def test_hoisting_iso_ot4_akin(self):
         """

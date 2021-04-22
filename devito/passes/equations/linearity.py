@@ -4,7 +4,6 @@ from itertools import product
 
 import sympy
 
-from devito.operations.solve import Solve
 from devito.symbolics import rebuild_if_untouched
 from devito.tools import as_mapper, flatten, split, timed_pass
 
@@ -167,6 +166,9 @@ def _(expr, mapper, nn_derivs=None):
 
 @singledispatch
 def factorize_derivatives(expr):
+    args = [factorize_derivatives(a) for a in expr.args]
+    expr = rebuild_if_untouched(expr, args)
+
     return expr
 
 
@@ -174,15 +176,6 @@ def factorize_derivatives(expr):
 @factorize_derivatives.register(sympy.Symbol)
 @factorize_derivatives.register(sympy.Function)
 def _(expr):
-    return expr
-
-
-@factorize_derivatives.register(sympy.Expr)
-@factorize_derivatives.register(Solve)
-def _(expr):
-    args = [factorize_derivatives(a) for a in expr.args]
-    expr = rebuild_if_untouched(expr, args)
-
     return expr
 
 

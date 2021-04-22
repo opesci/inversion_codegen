@@ -78,7 +78,7 @@ class TestCollectDerivatives(object):
     def test_solve(self):
         """
         By remaining unevaluated until after Operator's collect_derivatives,
-        the Derivatives inside a Solve object should be collected.
+        the Derivatives after a solve() should be collected.
         """
         grid = Grid(shape=(10, 10))
 
@@ -88,9 +88,9 @@ class TestCollectDerivatives(object):
         eq = Eq(u.forward, solve(pde, u.forward))
         leq = collect_derivatives.func([eq])[0]
 
-        assert len(eq.rhs.expr.find(Derivative)) == 6
-        assert len(leq.rhs.expr.find(Derivative)) == 5
-        assert len(leq.rhs.expr.args[1].find(Derivative)) == 3  # Check factorization
+        assert len(eq.rhs.find(Derivative)) == 5
+        assert len(leq.rhs.find(Derivative)) == 4
+        assert len(leq.rhs.args[3].find(Derivative)) == 3  # Check factorization
 
     def test_nocollection_if_unworthy(self):
         grid = Grid(shape=(10, 10))
