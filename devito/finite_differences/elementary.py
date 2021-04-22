@@ -47,10 +47,6 @@ class lucas(DifferentiableFunction, sympy.lucas):
     __sympy_class__ = sympy.lucas
 
 
-class motzkin(DifferentiableFunction, sympy.motzkin):
-    __sympy_class__ = sympy.motzkin
-
-
 class tribonacci(DifferentiableFunction, sympy.tribonacci):
     __sympy_class__ = sympy.tribonacci
 
@@ -441,10 +437,6 @@ class stieltjes(DifferentiableFunction, sympy.stieltjes):
     __sympy_class__ = sympy.stieltjes
 
 
-class riemann_xi(DifferentiableFunction, sympy.riemann_xi):
-    __sympy_class__ = sympy.riemann_xi
-
-
 def Eijk(x):
     return diffify(sympy.Eijk(x))
 
@@ -637,14 +629,6 @@ class beta(DifferentiableFunction, sympy.beta):
     __sympy_class__ = sympy.beta
 
 
-class betainc(DifferentiableFunction, sympy.betainc):
-    __sympy_class__ = sympy.betainc
-
-
-class betainc_regularized(DifferentiableFunction, sympy.betainc_regularized):
-    __sympy_class__ = sympy.betainc_regularized
-
-
 class mathieus(DifferentiableFunction, sympy.mathieus):
     __sympy_class__ = sympy.mathieus
 
@@ -659,3 +643,19 @@ class mathieusprime(DifferentiableFunction, sympy.mathieusprime):
 
 class mathieucprime(DifferentiableFunction, sympy.mathieucprime):
     __sympy_class__ = sympy.mathieucprime
+
+
+# New elementary functions in sympy 1.8
+if float(sympy.__version__) >= 1.8:
+
+    class motzkin(DifferentiableFunction, sympy.motzkin):
+        __sympy_class__ = sympy.motzkin
+
+    class riemann_xi(DifferentiableFunction, sympy.riemann_xi):
+        __sympy_class__ = sympy.riemann_xi
+
+    class betainc(DifferentiableFunction, sympy.betainc):
+        __sympy_class__ = sympy.betainc
+
+    class betainc_regularized(DifferentiableFunction, sympy.betainc_regularized):
+        __sympy_class__ = sympy.betainc_regularized

@@ -30,7 +30,7 @@ jobs:
            pytest-ubuntu-py36-gcc49-omp,
            pytest-ubuntu-py37-gcc5-omp,
            pytest-ubuntu-py38-gcc6-omp,
-           pytest-ubuntu-py36-gcc7-omp,
+           pytest-ubuntu-py36-gcc7-omp-sympy17,
            pytest-ubuntu-py37-gcc7-noomp,
            pytest-ubuntu-py37-gcc8-omp,
            pytest-ubuntu-py38-gcc9-omp,
@@ -57,7 +57,7 @@ jobs:
           arch: "gcc-6"
           language: "openmp"
 
-        - name: pytest-ubuntu-py36-gcc7-omp
+        - name: pytest-ubuntu-py36-gcc7-omp-sympy17
           python-version: 3.6
           os: ubuntu-18.04
           arch: "gcc-7"
@@ -146,6 +146,10 @@ jobs:
       run: |
         pip install --upgrade pip
         pip install -e .
+
+    - name: Alternative sympy version
+      if: matrix.name == 'pytest-ubuntu-py36-gcc7-omp-sympy17'
+      run: pip install sympy==1.7
 
     - name: Test with pytest
       run: |
