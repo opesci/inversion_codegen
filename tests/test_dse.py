@@ -1248,7 +1248,7 @@ class TestAliases(object):
         exprs = FindNodes(Expression).visit(op)
         sqrt_exprs = exprs[:2]
         assert all(e.write in arrays for e in sqrt_exprs)
-        assert all(e.expr.rhs.args[0].is_Pow for e in sqrt_exprs)
+        assert all(e.expr.rhs.is_Pow for e in sqrt_exprs)
         assert all(e.write._mem_heap and not e.write._mem_external for e in sqrt_exprs)
 
         tmp_exprs = exprs[4:6]
