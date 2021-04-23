@@ -103,24 +103,23 @@ class CireTransformer(object):
         self.opt_mingain = options['cire-mingain']
 
     def _aliases_from_clusters(self, clusters, exclude, meta):
+        exprs = flatten([c.exprs for c in clusters])
+
         # [Clusters]_n -> [Schedule]_m
         variants = []
         for g in self._generators:
-            exprs = flatten([c.exprs for c in clusters])
-
             # Clusters -> AliasList
             mapper = g.generate(exprs, exclude)
             found = collect(mapper.extracted, meta.ispace,
                             self.opt_minstorage, self.opt_mingain)
-            #TODO: RENAME EXPRS, MOVE the "real input exprs" outside of this loop
-            exprs, aliases = choose(found, exprs, mapper)
+            pexprs, aliases = choose(found, exprs, mapper)
             if not aliases:
                 continue
 
             # AliasList -> Schedule
             schedule = lower_aliases(aliases, meta, self.opt_maxpar)
 
-            variants.append(Variant(schedule, exprs))
+            variants.append(Variant(schedule, pexprs))
 
         # [Schedule]_m -> Schedule (s.t. best memory/flops trade-off)
         if not variants:
@@ -1211,7 +1210,6 @@ class AliasList(object):
 
 
 ScheduledAlias = namedtuple('SchedAlias', 'pivot writeto ispace aliaseds indicess score')
-ScheduledAlias.__new__.__defaults__ = (None,) * len(ScheduledAlias._fields)  #TODO: DROP?
 
 
 class Schedule(tuple):
