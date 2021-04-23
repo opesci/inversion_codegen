@@ -451,7 +451,17 @@ class EvalDerivative(DifferentiableOp, sympy.Add):
     def __new__(cls, *args, base=None, **kwargs):
         kwargs['evaluate'] = False
         obj = sympy.Add.__new__(cls, *args, **kwargs)
-        obj.base = base
+
+        try:
+            obj.base = base
+        except AttributeError:
+            # This might happen if e.g. one attempts a (re)construction with
+            # one sole argument. The (re)constructed EvalDerivative degenerates
+            # to an object of different type, in classic SymPy style. That's fine
+            assert len(args) <= 1
+            assert not obj.is_Add
+            return obj
+
         return obj
 
     @property

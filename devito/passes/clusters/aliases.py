@@ -15,7 +15,7 @@ from devito.ir import (SEQUENTIAL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
 from devito.passes.clusters.utils import timed_pass
 from devito.symbolics import (Uxmapper, compare_ops, count, estimate_cost, q_constant,
                               q_leaf, rebuild_if_untouched, retrieve_indexed,
-                              search, uxreplace)
+                              retrieve_symbols, search, uxreplace)
 from devito.tools import as_mapper, as_tuple, flatten, frozendict, generator, split
 from devito.types import (Array, TempFunction, Eq, Symbol, ModuloDimension,
                           CustomDimension, IncrDimension, Indexed)
@@ -118,17 +118,14 @@ class CireTransformer(object):
                 continue
 
             # AliasList -> Schedule
-            #TODO: ADD score to Schedule
             schedule = lower_aliases(aliases, meta, self.opt_maxpar)
 
             variants.append(Variant(schedule, exprs))
 
         # [Schedule]_m -> Schedule (s.t. best memory/flops trade-off)
-        try:
-            #TODO" USE SCHEDULE'S SCORE TO PICK BEST VARIANT
-            schedule, exprs = pick_best(variants)
-        except IndexError:
+        if not variants:
             return []
+        schedule, exprs = pick_best(variants)
 
         # Schedule -> Schedule (optimization)
         if self.opt_rotate:
@@ -210,6 +207,8 @@ class CireInvariants(CireTransformer, Queue):
         processed = list(clusters)
         for ak, group in as_mapper(clusters, key=key).items():
             g = [c for c in group if c.is_dense and c not in xtracted]
+            if not g:
+                continue
 
             made = self._aliases_from_clusters(g, exclude, ak)
 
@@ -894,26 +893,50 @@ def pick_best(variants):
     Return the variant with the best trade-off between operation count
     reduction and working set increase. Heuristics may be applied.
     """
-    best = variants.pop(0)
+    best = None
+    best_flops_score = None
+    best_ws_score = None
+
     for i in variants:
-        best_flop_score, best_ws_score = best.schedule.score
-        if best_flop_score == 0:
-            best = i
-            continue
+        # The _actual_ flop reduction must take into account the common
+        # subexpressions as well, or a variant might be erroneously judged
+        # less expensive than a variant which has multiple, partially
+        # overlapping SchedAlias, such as one with `cos(x)`, `sin(x)`
+        # and `cos(x)*sin(x)` VS one with only `cos(x)` and `sin(x)`, where
+        # the latter clearly is "better" since it only uses two temps
+        i_flops_score = 0
+        symbols = retrieve_symbols(i.exprs)
+        for sa in i.schedule:
+            na = len(sa.aliaseds)
+            nt = sum(symbols.count(i) for i in sa.aliaseds)
+            assert nt >= na > 0
+            i_flops_score += (sa.score/na)*nt
 
-        i_flop_score, i_ws_score = i.schedule.score
+        # The working set score depends on the number and dimensionality of
+        # temporaries required by the Schedule
+        i_ws_count = Counter([len(sa.writeto) for sa in i.schedule])
+        i_ws_score = tuple(i_ws_count[sa + 1] for sa in reversed(range(max(i_ws_count))))
 
-        # 1) We assume the performance impact of an N-dimensional temporary
-        #    is always the same regardless of the value N
-        best_ws_score = sum(best_ws_score)
+        # TODO: For now, we assume the performance impact of an N-dimensional
+        # temporary is always the same regardless of the value N, but this might
+        # change in the future
         i_ws_score = sum(i_ws_score)
 
-        # 2) The variant with the smaller working set size increase wins unless
+        if best is None:
+            best = i
+            best_flops_score = i_flops_score
+            best_ws_score = i_ws_score
+            continue
+
+        if i_flops_score == 0:
+            continue
+
+        # The variant with the smaller working set size increase wins unless
         # there's a significant reduction in operation count in the other one
         delta = i_ws_score - best_ws_score
-        if (delta > 0 and i_flop_score / best_flop_score > 1.3) or \
-           (delta == 0 and i_flop_score > best_flop_score) or \
-           (delta < 0 and best_flop_score / i_flop_score <= 1.3):
+        if (delta > 0 and i_flops_score / best_flops_score > 1.3) or \
+           (delta == 0 and i_flops_score > best_flops_score) or \
+           (delta < 0 and best_flops_score / i_flops_score <= 1.3):
             best = i
 
     return best
@@ -1198,17 +1221,6 @@ class Schedule(tuple):
         obj.dmapper = dmapper or {}
         obj.rmapper = rmapper or {}
         return obj
-
-    @property
-    def score(self):
-        # Tot flop reduction
-        flop_score = sum(i.score for i in self)
-
-        # Dimensionality impacts the working set score
-        ws_count = Counter([len(i.writeto) for i in self])
-        ws_score = tuple(ws_count[i + 1] for i in reversed(range(max(ws_count))))
-
-        return flop_score, ws_score
 
 
 def make_rotations_table(d, v):
