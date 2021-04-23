@@ -561,7 +561,6 @@ def collect(extracted, ispace, minstorage, mingain):
                 score = estimate_cost(pivot, True)*((na - 1) + nr) // mingain
             except ZeroDivisionError:
                 score = np.inf
-            from IPython import embed; embed()
             if score > 0:
                 aliases.add(pivot, aliaseds, list(mapper), distances, score)
 

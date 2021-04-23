@@ -459,6 +459,7 @@ class EvalDerivative(DifferentiableOp, sympy.Add):
         return lambda *a, **kw: EvalDerivative(*a, base=self.base, **kw)
 
     def _new_rawargs(self, *args, **kwargs):
+        kwargs.pop('is_commutative', None)
         return self.func(*args, **kwargs)
 
 

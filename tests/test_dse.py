@@ -1468,7 +1468,7 @@ class TestAliases(object):
         op = Operator(eq)
 
         assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 2
-        assert op._profiler._sections['section0'].sops == 41
+        assert op._profiler._sections['section0'].sops == 39
 
     def test_hoisting_iso_ot4_akin(self):
         """
@@ -1496,14 +1496,10 @@ class TestAliases(object):
         assert len([i for i in FindSymbols().visit(op0) if i.is_Array]) == 2
         assert op0._profiler._sections['section1'].sops == 62
 
-        op1 = Operator(eq, opt=('advanced', {'openmp': False, 'cire-maxalias': True}))
-        assert len([i for i in FindSymbols().visit(op1) if i.is_Array]) == 4
-        assert op1._profiler._sections['section1'].sops == 58
-
-        op2 = Operator(eq, opt=('advanced', {'openmp': False, 'cire-maxalias': True}),
+        op1 = Operator(eq, opt=('advanced', {'openmp': False}),
                        subs={i: 0.5 for i in grid.spacing_symbols})
-        assert len([i for i in FindSymbols().visit(op2) if i.is_Array]) == 2
-        assert op2._profiler._sections['section1'].sops == 44
+        assert len([i for i in FindSymbols().visit(op1) if i.is_Array]) == 2
+        assert op1._profiler._sections['section1'].sops == 44
 
     def test_hoisting_scalar_divs(self):
         """
@@ -1779,19 +1775,15 @@ class TestAliases(object):
         f = Function(name='f', grid=grid, space_order=4)
         v = TimeFunction(name="v", grid=grid, space_order=4)
         v1 = TimeFunction(name="v1", grid=grid, space_order=4)
-        v2 = TimeFunction(name="v2", grid=grid, space_order=4)
 
         f.data_with_halo[:] = 0.5
         v.data_with_halo[:] = 1.
         v1.data_with_halo[:] = 1.
-        v2.data_with_halo[:] = 1.
 
         eqn = Eq(v.forward, (v.dx * (1 + 2*f) * f).dx)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-rotate': rotate}))
-        op2 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-rotate': rotate,
-                                              'cire-maxalias': True}))
 
         # Check code generation
         arrays = [i for i in FindSymbols().visit(op1._func_table['bf0']) if i.is_Array]
@@ -1803,13 +1795,10 @@ class TestAliases(object):
         summary1 = op1(time_M=1, v=v1)
         expected_v = norm(v)
         assert np.isclose(expected_v, norm(v1), rtol=1e-5)
-        summary2 = op2(time_M=1, v=v2)
-        assert np.isclose(expected_v, norm(v2), rtol=1e-5)
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
-        assert summary1[('section0', None)].ops == 17
-        assert summary2[('section0', None)].ops == 14
+        assert summary1[('section0', None)].ops == 14
 
     def test_nested_first_derivatives_unbalanced(self):
         grid = Grid(shape=(3, 3))
