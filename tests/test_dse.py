@@ -1371,10 +1371,11 @@ class TestAliases(object):
 
         xs, ys, zs = self.get_params(op, 'x_size', 'y_size', 'z_size')
         arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
-        assert len(arrays) == 3
+        assert len(arrays) == 4
         self.check_array(arrays[0], ((0, 0),), (ys,))
         self.check_array(arrays[1], ((0, 0), (0, 0)), (xs, zs))
-        self.check_array(arrays[2], ((0, 0), (0, 0)), (xs, ys))
+        self.check_array(arrays[2], ((0, 0),), (xs,))
+        self.check_array(arrays[3], ((0, 0), (0, 0)), (xs, ys))
 
     def test_space_invariant_v4(self):
         """
