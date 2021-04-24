@@ -101,6 +101,7 @@ class CireTransformer(object):
         self.opt_rotate = options['cire-rotate']
         self.opt_ftemps = options['cire-ftemps']
         self.opt_mingain = options['cire-mingain']
+        self.opt_schedule_strategy = options['cire-schedule']
 
     def _aliases_from_clusters(self, clusters, exclude, meta):
         exprs = flatten([c.exprs for c in clusters])
@@ -124,7 +125,7 @@ class CireTransformer(object):
         # [Schedule]_m -> Schedule (s.t. best memory/flops trade-off)
         if not variants:
             return []
-        schedule, exprs = pick_best(variants)
+        schedule, exprs = pick_best(variants, self.opt_schedule_strategy)
 
         # Schedule -> Schedule (optimization)
         if self.opt_rotate:
@@ -887,11 +888,18 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
     return clusters, subs
 
 
-def pick_best(variants):
+def pick_best(variants, schedule_strategy):
     """
     Return the variant with the best trade-off between operation count
     reduction and working set increase. Heuristics may be applied.
     """
+    if type(schedule_strategy) == int:
+        try:
+            return variants[schedule_strategy]
+        except IndexError:
+            raise ValueError("Illegal schedule strategy %d; accepted `[0, %d]"
+                             % len(variants))
+
     best = None
     best_flops_score = None
     best_ws_score = None
