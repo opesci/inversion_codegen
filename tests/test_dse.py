@@ -1956,9 +1956,10 @@ class TestAliases(object):
         eq = Eq(u.forward, u.dx.dx + f*u.dy.dy)
 
         op0 = Operator(eq, opt='noop')
-        op1 = Operator(eq, opt=('advanced', {'blocklevels': 2, 'cire-rotate': rotate}))
+        op1 = Operator(eq, opt=('advanced', {'blocklevels': 2, 'cire-rotate': rotate,
+                                             'min-storage': True}))
         op2 = Operator(eq, opt=('advanced', {'blocklevels': 2, 'par-nested': 0,
-                                             'cire-rotate': rotate}))
+                                             'cire-rotate': rotate, 'min-storage': True}))
 
         # Check code generation
         assert len([i for i in op1.dimensions if i.is_Incr]) == 6 + (2 if rotate else 0)
