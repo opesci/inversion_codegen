@@ -101,7 +101,6 @@ class CireTransformer(object):
         self.opt_rotate = options['cire-rotate']
         self.opt_ftemps = options['cire-ftemps']
         self.opt_mingain = options['cire-mingain']
-        self.opt_schedule_strategy = options['cire-schedule']
 
     def _aliases_from_clusters(self, clusters, exclude, meta):
         exprs = flatten([c.exprs for c in clusters])
@@ -187,6 +186,7 @@ class CireInvariants(CireTransformer, Queue):
         super().__init__(sregistry, options, platform)
 
         self.opt_maxpar = True
+        self.opt_schedule_strategy = None
 
     def process(self, clusters):
         return self._process_fatd(clusters, 1, xtracted=[])
@@ -240,6 +240,7 @@ class CireSops(CireTransformer):
         super().__init__(sregistry, options, platform)
 
         self.opt_maxpar = options['cire-maxpar']
+        self.opt_schedule_strategy = options['cire-schedule']
 
     def process(self, clusters):
         processed = []
@@ -935,15 +936,15 @@ def pick_best(variants, schedule_strategy):
             best_ws_score = i_ws_score
             continue
 
-        if i_flops_score == 0:
+        # The variant with the best OI shift wins
+        if i_ws_score == 0 and best_ws_score == 0:
+            # Degenerate case
+            if i_flops_score > best_flops_score:
+                best = i
+        elif i_ws_score == 0 or best_ws_score == 0:
+            # Degenerate case, don't know what to do, ignore
             continue
-
-        # The variant with the smaller working set size increase wins unless
-        # there's a significant reduction in operation count in the other one
-        delta = i_ws_score - best_ws_score
-        if (delta > 0 and i_flops_score / best_flops_score > 1.3) or \
-           (delta == 0 and i_flops_score > best_flops_score) or \
-           (delta < 0 and best_flops_score / i_flops_score <= 1.3):
+        elif i_flops_score/i_ws_score > best_flops_score/best_ws_score:
             best = i
 
     return best
