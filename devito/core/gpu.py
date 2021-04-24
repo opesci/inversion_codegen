@@ -32,6 +32,12 @@ class DeviceOperatorMixin(object):
     be optimized away.
     """
 
+    CIRE_SCHEDULE = 'automatic'
+    """
+    Strategy used to schedule derivatives across loops. This impacts the operational
+    intensity of the generated kernel.
+    """
+
     PAR_CHUNK_NONAFFINE = 3
     """
     Coefficient to adjust the chunk size in non-affine parallel loops.
@@ -64,6 +70,7 @@ class DeviceOperatorMixin(object):
         o['cire-maxpar'] = oo.pop('cire-maxpar', True)
         o['cire-ftemps'] = oo.pop('cire-ftemps', False)
         o['cire-mingain'] = oo.pop('cire-mingain', cls.CIRE_MINGAIN)
+        o['cire-schedule'] = oo.pop('cire-schedule', cls.CIRE_SCHEDULE)
 
         # GPU parallelism
         o['par-collapse-ncores'] = 1  # Always use a collapse clause

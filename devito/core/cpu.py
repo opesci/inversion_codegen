@@ -31,6 +31,12 @@ class Cpu64OperatorMixin(object):
     be optimized away.
     """
 
+    CIRE_SCHEDULE = 'automatic'
+    """
+    Strategy used to schedule derivatives across loops. This impacts the operational
+    intensity of the generated kernel.
+    """
+
     PAR_COLLAPSE_NCORES = 4
     """
     Use a collapse clause if the number of available physical cores is greater
@@ -84,6 +90,7 @@ class Cpu64OperatorMixin(object):
         o['cire-maxpar'] = oo.pop('cire-maxpar', False)
         o['cire-ftemps'] = oo.pop('cire-ftemps', False)
         o['cire-mingain'] = oo.pop('cire-mingain', cls.CIRE_MINGAIN)
+        o['cire-schedule'] = oo.pop('cire-schedule', cls.CIRE_SCHEDULE)
 
         # Shared-memory parallelism
         o['par-collapse-ncores'] = oo.pop('par-collapse-ncores', cls.PAR_COLLAPSE_NCORES)
