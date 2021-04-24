@@ -22,6 +22,7 @@
     * `cire-maxpar` (boolean, False): bigger working set size, more parallelism
     * `cire-ftemps` (boolean, False): give user control over the allocated temporaries
     * `cire-mingain` (int, 10): minimum gain to optimize away a redundant expression
+    * `cire-schedule` ((str, int), 'automatic'): scheduling strategy for derivatives
   * Device-specific:
     * `gpu-fit` (boolean, False): list of saved TimeFunctions that fit in the device memory
     * `gpu-direct` (boolean, False): generate code for optimized GPU-aware MPI
@@ -57,6 +58,7 @@
 | cire-maxpar         | :heavy_check_mark:  | :heavy_check_mark: |
 | cire-ftemps         | :heavy_check_mark:  | :heavy_check_mark: |
 | cire-mingain        | :heavy_check_mark:  | :heavy_check_mark: |
+| cire-schedule       | :heavy_check_mark:  | :heavy_check_mark: |
 
 * Device-specific
 
