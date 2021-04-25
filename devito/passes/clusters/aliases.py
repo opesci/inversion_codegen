@@ -260,10 +260,9 @@ class CireInvariants(CireTransformer, Queue):
         rule = lambda e: e.is_Function or (e.is_Pow and e.exp.is_Number and e.exp < 1)
         cbk_search = lambda e: search(e, rule, 'all', 'bfs_first_hit')
         basextr = self._do_generate(exprs, exclude, cbk_search)
-        yield basextr
-
         if not basextr:
             return
+        yield basextr
 
         # E.g., extract `sin(x)*cos(x)` from `a*sin(x)*cos(x)`
         rule = lambda e: any(a in basextr for a in e.args)
@@ -309,7 +308,7 @@ class CireSops(CireTransformer):
         return processed
 
     def _generate(self, exprs, exclude):
-        # E.g., extract `u.dx.dx` from `u.dx.dx.dy`
+        # E.g., extract `u.dx*a*b` and `u.dx*a*c` from `[(u.dx*a*b).dy`, `(u.dx*a*c).dy]`
         def cbk_search(expr):
             if isinstance(expr, EvalDerivative) and not expr.base.is_Function:
                 return expr.args
@@ -318,18 +317,19 @@ class CireSops(CireTransformer):
 
         cbk_compose = lambda e: split_coeff(e)[1]
         basextr = self._do_generate(exprs, exclude, cbk_search, cbk_compose)
-        yield basextr
-
         if not basextr:
             return
+        yield basextr
 
         # E.g., extract `u.dx*a` from `[(u.dx*a*b).dy, (u.dx*a*c).dy]`
         # That is, attempt extracting the largest common derivative-induced subexprs
         mappers = [deindexify(e) for e in basextr.extracted]
         counter = Counter(flatten(m.keys() for m in mappers))
-        rank = sorted(counter, key=lambda e: (counter[e], estimate_cost(e)), reverse=True)
+        groups = as_mapper(counter, key=counter.get)
+        grank = {k: sorted(v, key=lambda e: estimate_cost(e), reverse=True)
+                 for k, v in groups.items()}
 
-        def cbk_search2(expr):
+        def cbk_search2(expr, rank):
             ret = []
             for e in cbk_search(expr):
                 mapper = deindexify(e)
@@ -339,8 +339,9 @@ class CireSops(CireTransformer):
                         break
             return ret
 
-        from IPython import embed; embed()
-        yield self._do_generate(exprs, exclude, cbk_search2, cbk_compose)
+        for i in sorted(grank, reverse=True)[:2]:
+            cbk_search_i = lambda e: cbk_search2(e, grank[i])
+            yield self._do_generate(exprs, exclude, cbk_search_i, cbk_compose)
 
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
@@ -889,21 +890,28 @@ def pick_best(variants, schedule_strategy):
         i_ws_score = sum(i_ws_score)
 
         if best is None:
-            best = i
-            best_flops_score = i_flops_score
-            best_ws_score = i_ws_score
+            best, best_flops_score, best_ws_score = i, i_flops_score, i_ws_score
             continue
 
         # The variant with the best OI shift wins
         if i_ws_score == 0 and best_ws_score == 0:
             # Degenerate case
             if i_flops_score > best_flops_score:
-                best = i
+                best, best_flops_score, best_ws_score = i, i_flops_score, i_ws_score
         elif i_ws_score == 0 or best_ws_score == 0:
             # Degenerate case, don't know what to do, ignore
             continue
-        elif i_flops_score/i_ws_score > best_flops_score/best_ws_score:
-            best = i
+        else:
+            i_score = i_flops_score/i_ws_score
+            best_score = best_flops_score/best_ws_score
+            if i_score >= best_score:
+                # `i >= best` => we have a new champion
+                best, best_flops_score, best_ws_score = i, i_flops_score, i_ws_score
+            elif best_score / i_score < 1.2 and i_flops_score / best_flops_score > 1.75:
+                # `i < best`, but there's however a significant bump in flop
+                # reduction. Heuristically, we privilege `i`, which experience
+                # suggests to be a very good variant
+                best, best_flops_score, best_ws_score = i, i_flops_score, i_ws_score
 
     return best
 
