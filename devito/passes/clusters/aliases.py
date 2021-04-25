@@ -107,9 +107,8 @@ class CireTransformer(object):
 
         # [Clusters]_n -> [Schedule]_m
         variants = []
-        for g in self._generators:
+        for mapper in self._generate(exprs, exclude):
             # Clusters -> AliasList
-            mapper = g.generate(exprs, exclude)
             found = collect(mapper.extracted, meta.ispace,
                             self.opt_minstorage, self.opt_mingain)
             pexprs, aliases = choose(found, exprs, mapper)
@@ -155,15 +154,45 @@ class CireTransformer(object):
 
         return processed
 
-    @property
-    def _generators(self):
+    def _generate(self, exprs, exclude):
         """
-        A CireTransformer uses one or more Generators to extract sub-expressions
-        that are potential CIRE candidates. Different Generators may capture
-        different sets of sub-expressions, and therefore be characterized by
-        different memory/flops trade-offs.
+        Generate one or more extractions from ``exprs``. An extraction is a
+        set of CIRE candidates which may be turned into aliases. Two different
+        extractions may contain overlapping sub-expressions and, therefore,
+        should be processed and evaluated indipendently. A CIRE candidate won't
+        contain any of the symbols appearing in ``exclude``.
         """
         raise NotImplementedError
+
+    def _do_generate(self, exprs, exclude, cbk_search, cbk_compose=None):
+        """
+        Carry out the bulk of the work of ``_generate``.
+        """
+        counter = generator()
+        make = lambda: Symbol(name='dummy%d' % counter())
+
+        if cbk_compose is None:
+            cbk_compose = lambda *args: None
+
+        mapper = Uxmapper()
+        for e in exprs:
+            for i in cbk_search(e):
+                if not i.is_commutative:
+                    continue
+
+                terms = cbk_compose(i)
+
+                # Make sure we won't break any data dependencies
+                if terms:
+                    free_symbols = set().union(*[i.free_symbols for i in terms])
+                else:
+                    free_symbols = i.free_symbols
+                if {a.function for a in free_symbols} & exclude:
+                    continue
+
+                mapper.add(i, make, terms)
+
+        return mapper
 
     def _lookup_key(self, c):
         """
@@ -221,9 +250,18 @@ class CireInvariants(CireTransformer, Queue):
 
         return processed
 
-    @property
-    def _generators(self):
-        return (GeneratorExpensive, GeneratorExpensiveCompounds)
+    def _generate(self, exprs, exclude):
+        # E.g., extract `sin(x)` and `cos(x)` from `a*sin(x)*cos(x)`
+        rule = lambda e: e.is_Function or (e.is_Pow and e.exp.is_Number and e.exp < 1)
+        cbk_search = lambda e: search(e, rule, 'all', 'bfs_first_hit')
+        basextr = self._do_generate(exprs, exclude, cbk_search)
+        yield basextr
+
+        # E.g., extract `sin(x)*cos(x)` from `a*sin(x)*cos(x)`
+        rule = lambda e: any(a in basextr for a in e.args)
+        cbk_search = lambda e: search(e, rule, 'all', 'dfs')
+        cbk_compose = lambda e: split(e.args, lambda a: a in basextr)[0]
+        yield self._do_generate(exprs, exclude, cbk_search, cbk_compose)
 
     def _lookup_key(self, c, d):
         ispace = c.ispace.reset()
@@ -262,9 +300,35 @@ class CireSops(CireTransformer):
 
         return processed
 
-    @property
-    def _generators(self):
-        return (GeneratorDerivative, GeneratorDerivativeCompounds)
+    def _generate(self, exprs, exclude):
+        # E.g., extract `u.dx.dx` from `u.dx.dx.dy`
+        def cbk_search(expr):
+            if isinstance(expr, EvalDerivative) and not expr.base.is_Function:
+                return expr.args
+            else:
+                return flatten(e for e in [cbk_search(a) for a in expr.args] if e)
+
+        cbk_compose = lambda e: split_coeff(e)[1]
+        basextr = self._do_generate(exprs, exclude, cbk_search, cbk_compose)
+        yield basextr
+
+        # E.g., extract `u.dx*a` from `[(u.dx*a*b).dy, (u.dx*a*c).dy]`
+        # That is, attempt extracting the largest common derivative-induced subexprs
+        mappers = [deindexify(e) for e in basextr.extracted]
+        counter = Counter(flatten(m.keys() for m in mappers))
+        rank = sorted(counter, key=lambda e: (counter[e], estimate_cost(e)), reverse=True)
+
+        def cbk_search2(expr):
+            ret = []
+            for e in cbk_search(expr):
+                mapper = deindexify(e)
+                for i in rank:
+                    if i in mapper:
+                        ret.extend(mapper[i])
+                        break
+            return ret
+
+        yield self._do_generate(exprs, exclude, cbk_search2, cbk_compose)
 
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
@@ -274,118 +338,6 @@ modes = {
     CireInvariants.optname: CireInvariants,
     CireSops.optname: CireSops,
 }
-
-
-class Generator(object):
-
-    @classmethod
-    def _basextr(cls, exprs, exclude, make):
-        return Uxmapper()
-
-    @classmethod
-    def _search(cls, expr, basextr):
-        raise NotImplementedError
-
-    @classmethod
-    def _compose(cls, expr, basextr):
-        return None
-
-    @classmethod
-    def generate(cls, exprs, exclude, make=None):
-        if make is None:
-            counter = generator()
-            make = lambda: Symbol(name='dummy%d' % counter())
-
-        basextr = cls._basextr(exprs, exclude, make)
-
-        mapper = Uxmapper()
-        for e in exprs:
-            for i in cls._search(e, basextr):
-                if not i.is_commutative:
-                    continue
-
-                terms = cls._compose(i, basextr)
-
-                # Make sure we won't break any data dependencies
-                if terms:
-                    free_symbols = set().union(*[i.free_symbols for i in terms])
-                else:
-                    free_symbols = i.free_symbols
-                if {a.function for a in free_symbols} & exclude:
-                    continue
-
-                mapper.add(i, make, terms)
-
-        return mapper
-
-
-class GeneratorExpensive(Generator):
-
-    @classmethod
-    def _search(cls, expr, *args):
-        rule = lambda e: e.is_Function or (e.is_Pow and e.exp.is_Number and e.exp < 1)
-        return search(expr, rule, 'all', 'bfs_first_hit')
-
-
-class GeneratorExpensiveCompounds(GeneratorExpensive):
-
-    @classmethod
-    def _basextr(cls, exprs, exclude, make):
-        return cls.__base__.generate(exprs, exclude, make)
-
-    @classmethod
-    def _search(cls, expr, basextr):
-        rule = lambda e: any(a in basextr for a in e.args)
-        return search(expr, rule, 'all', 'dfs')
-
-    @classmethod
-    def _compose(cls, expr, basextr):
-        return split(expr.args, lambda a: a in basextr)[0]
-
-
-class GeneratorDerivative(Generator):
-
-    @classmethod
-    def _search(cls, expr, *args):
-        if isinstance(expr, EvalDerivative) and not expr.base.is_Function:
-            return expr.args
-        else:
-            return flatten(e for e in [cls._search(a) for a in expr.args] if e)
-
-    @classmethod
-    def _compose(cls, expr, *args):
-        return split_coeff(expr)[1]
-
-
-class GeneratorDerivativeCompounds(GeneratorDerivative):
-
-    @classmethod
-    def _basextr(cls, exprs, exclude, make):
-        basextr = cls.__base__.generate(exprs, exclude, make)
-
-        # Find the largest de-indexified sub-expressions redundantly
-        # appearing across multiple exprs
-        mappers = [deindexify(e) for e in basextr.extracted]
-
-        # Sort by occurrences and costs
-        counter = Counter(flatten(m.keys() for m in mappers))
-        rank = sorted(counter, key=lambda e: (counter[e], estimate_cost(e)), reverse=True)
-
-        return rank
-
-    @classmethod
-    def _search(cls, expr, basextr):
-        found = cls.__base__._search(expr)
-
-        ret = []
-        for e in found:
-            mapper = deindexify(e)
-            for i in basextr:
-                if i in mapper:
-                    ret.extend(mapper[i])
-                    break
-
-        return ret
 
 
 def collect(extracted, ispace, minstorage, mingain):
