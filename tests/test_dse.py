@@ -1060,14 +1060,13 @@ class TestAliases(object):
         eqns = [Eq(u.forward, d1((1 - f * e**2) + f * e * sqrt(1 - e**2) * d0(v))),
                 Eq(v.forward, d1((1 - f + f * e**2) * d0(v) + f * e * sqrt(1 - e**2)))]
 
-        #op0 = Operator(eqns, opt='noop')
-        op1 = Operator(eqns, opt='advanced')
+        op0 = Operator(eqns, opt='noop')
+        op1 = Operator(eqns, opt=('advanced', {'cire-schedule': 2}))
 
         # Check code generation
         # We expect two temporary Arrays which have in common a sub-expression
         # stemming from `d0(v, p0, p1)`
         arrays = [i for i in FindSymbols().visit(op1._func_table['bf0']) if i.is_Array]
-        from IPython import embed; embed()
         assert len(arrays) == 7
         vexpandeds = FindNodes(VExpanded).visit(op1._func_table['bf0'])
         assert len(vexpandeds) == (2 if configuration['language'] == 'openmp' else 0)
@@ -1086,7 +1085,7 @@ class TestAliases(object):
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
-        assert sum(i.ops for i in summary1.values()) == 60
+        assert sum(i.ops for i in summary1.values()) == 76
 
     @pytest.mark.parametrize('rotate', [False, True])
     def test_from_different_nests(self, rotate):
