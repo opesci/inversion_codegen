@@ -82,6 +82,11 @@ def cire(clusters, mode, sregistry, options, platform):
     t0 = 2.0*t2[x,y,z]
     t1 = 3.0*t2[x,y,z+1]
     """
+    modes = {
+        CireInvariants.optname: CireInvariants,
+        CireSops.optname: CireSops,
+    }
+
     return modes[mode](sregistry, options, platform).process(clusters)
 
 
@@ -257,6 +262,9 @@ class CireInvariants(CireTransformer, Queue):
         basextr = self._do_generate(exprs, exclude, cbk_search)
         yield basextr
 
+        if not basextr:
+            return
+
         # E.g., extract `sin(x)*cos(x)` from `a*sin(x)*cos(x)`
         rule = lambda e: any(a in basextr for a in e.args)
         cbk_search = lambda e: search(e, rule, 'all', 'dfs')
@@ -312,6 +320,9 @@ class CireSops(CireTransformer):
         basextr = self._do_generate(exprs, exclude, cbk_search, cbk_compose)
         yield basextr
 
+        if not basextr:
+            return
+
         # E.g., extract `u.dx*a` from `[(u.dx*a*b).dy, (u.dx*a*c).dy]`
         # That is, attempt extracting the largest common derivative-induced subexprs
         mappers = [deindexify(e) for e in basextr.extracted]
@@ -328,16 +339,11 @@ class CireSops(CireTransformer):
                         break
             return ret
 
+        from IPython import embed; embed()
         yield self._do_generate(exprs, exclude, cbk_search2, cbk_compose)
 
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
-
-
-modes = {
-    CireInvariants.optname: CireInvariants,
-    CireSops.optname: CireSops,
-}
 
 
 def collect(extracted, ispace, minstorage, mingain):
