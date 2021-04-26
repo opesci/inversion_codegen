@@ -91,14 +91,14 @@ def test_cache_blocking_structure(blockinner, exp_calls, exp_iters):
                                              'par-collapse-ncores': 1}))
     calls = FindNodes(Call).visit(op)
     assert len(calls) == exp_calls
-    trees = retrieve_iteration_tree(op)
-    assert len(trees) == 2
-    tree = trees[1]
+    trees = [i for i in retrieve_iteration_tree(op) if len(i) > 1]
+    assert len(trees) == 1
+    tree = trees[0]
     assert len(tree) == exp_iters
     if blockinner:
-        assert all(tree[i].dim.is_Incr for i in range(1,exp_iters))
+        assert all(tree[i].dim.is_Incr for i in range(1, exp_iters))
     else:
-        assert all(tree[i].dim.is_Incr for i in range(1,exp_iters-1))
+        assert all(tree[i].dim.is_Incr for i in range(1, exp_iters-1))
         assert not tree[-1].dim.is_Incr
 
     # Check presence of openmp pragmas at the right place
@@ -115,7 +115,6 @@ def test_cache_blocking_structure(blockinner, exp_calls, exp_iters):
     # to avoid omp segfaults at scheduling time (only certain omp implementations,
     # including Intel's)
     conditionals = FindNodes(Conditional).visit(op)
-    
 
     assert len(conditionals) == 1
     conds = conditionals[0].condition.args
@@ -147,9 +146,10 @@ def test_cache_blocking_structure_subdims():
 
     # Non-local SubDimension -> blocking expected
     op = Operator(Eq(f.forward, f + 1, subdomain=grid.interior))
-    trees = retrieve_iteration_tree(op)
-    assert len(trees) == 2
-    tree = trees[1]
+    trees = [i for i in retrieve_iteration_tree(op) if len(i) > 1]
+
+    assert len(trees) == 1
+    tree = trees[0]
     assert len(tree) == 6
 
     assert tree[1].dim.is_Incr and tree[1].dim.parent is xi and tree[1].dim.root is x
@@ -290,19 +290,20 @@ def test_cache_blocking_imperfect_nest(blockinner):
     op1 = Operator(eqns, opt=('advanced', {'blockinner': blockinner}))
 
     # First, check the generated code
-    trees = retrieve_iteration_tree(op1)
-    assert len(trees) == 3
-    assert len(trees[1]) == len(trees[2])
-    assert all(i is j for i, j in zip(trees[1][:5], trees[2][:5]))
-    assert trees[1][4] is not trees[2][5]
+    trees = [i for i in retrieve_iteration_tree(op1) if len(i) > 1]
+
+    assert len(trees) == 2
+    assert len(trees[0]) == len(trees[1])
+    assert all(i is j for i, j in zip(trees[0][:5], trees[1][:5]))
+    assert trees[0][4] is not trees[1][5]
+    assert all(i.dim.is_Incr for i in trees[0][1:5])
     assert all(i.dim.is_Incr for i in trees[1][1:5])
-    assert all(i.dim.is_Incr for i in trees[2][1:5])
 
+    assert op1.parameters[7] is trees[0][1].step
     assert op1.parameters[7] is trees[1][1].step
-    assert op1.parameters[7] is trees[2][1].step
 
+    assert op1.parameters[10] is trees[0][2].step
     assert op1.parameters[10] is trees[1][2].step
-    assert op1.parameters[10] is trees[2][2].step
 
     u.data[:] = 0.2
     v.data[:] = 1.5
@@ -339,17 +340,18 @@ def test_cache_blocking_imperfect_nest_v2(blockinner):
     op2 = Operator(eq, opt=('advanced-fsg', {'blockinner': blockinner}))
 
     # First, check the generated code
-    trees = retrieve_iteration_tree(op2)
-    assert len(trees) == 3
-    assert len(trees[1]) == len(trees[2])
-    assert all(i is j for i, j in zip(trees[1][:3], trees[2][:3]))
-    assert trees[1][2] is trees[2][2]
-    assert trees[1][3] is not trees[2][3]
-    assert all(i.dim.is_Incr for i in trees[1][1:3])
-    assert all(i.dim.is_Incr for i in trees[2][1:3])
+    trees = [i for i in retrieve_iteration_tree(op2) if len(i) > 1]
 
+    assert len(trees) == 2
+    assert len(trees[0]) == len(trees[1])
+    assert all(i is j for i, j in zip(trees[0][:3], trees[1][:3]))
+    assert trees[0][2] is trees[1][2]
+    assert trees[0][3] is not trees[1][3]
+    assert all(i.dim.is_Incr for i in trees[0][1:3])
+    assert all(i.dim.is_Incr for i in trees[1][1:3])
+
+    assert op2.parameters[6] is trees[0][1].step
     assert op2.parameters[6] is trees[1][1].step
-    assert op2.parameters[6] is trees[2][1].step
 
     op0(time_M=0)
 
@@ -775,32 +777,32 @@ class TestNestedParallelism(object):
                            {'par-nested': 0, 'blocklevels': blocklevels,
                             'par-collapse-ncores': 2,
                             'par-dynamic-work': 0}))
-        trees = retrieve_iteration_tree(op._func_table['bf0'].root)
-        assert len(trees) == 1
-        tree = trees[0]
-        assert len(tree) == 5 + (blocklevels - 1) * 2
-        assert tree[0].dim.is_Incr and tree[0].dim.parent is xi and tree[0].dim.root is x
-        assert tree[1].dim.is_Incr and tree[1].dim.parent is yi and tree[1].dim.root is y
-        assert tree[2].dim.is_Incr and tree[2].dim.parent is tree[0].dim and\
-            tree[2].dim.root is x
+        trees = retrieve_iteration_tree(op)
+        assert len(trees) == 2
+        tree = trees[1]
+        assert len(tree) == 6 + (blocklevels - 1) * 2
+        assert tree[1].dim.is_Incr and tree[1].dim.parent is xi and tree[1].dim.root is x
+        assert tree[2].dim.is_Incr and tree[2].dim.parent is yi and tree[2].dim.root is y
         assert tree[3].dim.is_Incr and tree[3].dim.parent is tree[1].dim and\
-            tree[3].dim.root is y
+            tree[1].dim.root is x
+        assert tree[4].dim.is_Incr and tree[4].dim.parent is tree[2].dim and\
+            tree[2].dim.root is y
 
         if blocklevels == 1:
-            assert not tree[4].dim.is_Incr and tree[4].dim is zi and\
-                tree[4].dim.parent is z
+            assert not tree[5].dim.is_Incr and tree[5].dim is zi and\
+                tree[5].dim.parent is z
         elif blocklevels == 2:
-            assert tree[3].dim.is_Incr and tree[3].dim.parent is tree[1].dim and\
-                tree[3].dim.root is y
             assert tree[4].dim.is_Incr and tree[4].dim.parent is tree[2].dim and\
-                tree[4].dim.root is x
+                tree[2].dim.root is y
             assert tree[5].dim.is_Incr and tree[5].dim.parent is tree[3].dim and\
-                tree[5].dim.root is y
-            assert not tree[6].dim.is_Incr and tree[6].dim is zi and\
-                tree[6].dim.parent is z
+                tree[3].dim.root is x
+            assert tree[6].dim.is_Incr and tree[6].dim.parent is tree[4].dim and\
+                tree[4].dim.root is y
+            assert not tree[7].dim.is_Incr and tree[7].dim is zi and\
+                tree[7].dim.parent is z
 
-        assert trees[0][0].pragmas[0].value ==\
+        assert trees[1][1].pragmas[0].value ==\
             'omp for collapse(2) schedule(dynamic,1)'
-        assert trees[0][2].pragmas[0].value == ('omp parallel for collapse(2) '
+        assert trees[1][3].pragmas[0].value == ('omp parallel for collapse(2) '
                                                 'schedule(dynamic,1) '
                                                 'num_threads(nthreads_nested)')

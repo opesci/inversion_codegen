@@ -6,6 +6,7 @@ from devito import Grid, Dimension, Eq, Function, TimeFunction, Operator # noqa
 from devito.ir import Expression, Iteration, FindNodes
 from devito.symbolics import INT
 
+
 class TestCodeGenSkewing(object):
 
     '''
@@ -29,13 +30,12 @@ class TestCodeGenSkewing(object):
         v = TimeFunction(name='v', grid=grid)  # noqa
         eqn = eval(expr)
         # List comprehension would need explicit locals/globals mappings to eval
-        op = Operator(eqn, opt=('blocking', {'skewing': True}))
+        op = Operator(eqn, opt=('advanced', {'skewing': True}))
         op.apply(time_M=5)
         iters = FindNodes(Iteration).visit(op)
         time_iter = [i for i in iters if i.dim.is_Time]
         assert len(time_iter) == 1
 
-        #for i in ['bf0']:
         iters = FindNodes(Iteration).visit(op)
         assert len(iters) == 6
         assert iters[1].dim.parent is x
@@ -80,7 +80,7 @@ class TestCodeGenSkewing(object):
         v = Function(name='v', grid=grid)  # noqa
         eqn = eval(expr)
         # List comprehension would need explicit locals/globals mappings to eval
-        op = Operator(eqn, opt=('blocking', {'skewing': True}))
+        op = Operator(eqn, opt=('advanced', {'skewing': True}))
         op.apply()
         iters = FindNodes(Iteration).visit(op)
         time_iter = [i for i in iters if i.dim.is_Time]
@@ -122,7 +122,7 @@ class TestCodeGenSkewing(object):
         v = TimeFunction(name='v', grid=grid)  # noqa
         eqn = eval(expr)
         # List comprehension would need explicit locals/globals mappings to eval
-        op = Operator(eqn, opt=('blocking', {'blocklevels': 0, 'skewing': skewing,
+        op = Operator(eqn, opt=('advanced', {'blocklevels': 0, 'skewing': skewing,
                                              'blockinner': blockinner}))
         op.apply(time_M=5)
 

@@ -1083,10 +1083,12 @@ class TestAliases(object):
         arrays = [i for i in FindSymbols().visit(op1) if i.is_Array]
         assert len(arrays) == 7
         assert all(i._mem_heap and not i._mem_external for i in arrays)
-        trees = retrieve_iteration_tree(op1)
-        assert len(trees) == 4
 
-        exprs = FindNodes(Expression).visit(trees[2])
+        trees = [i for i in retrieve_iteration_tree(op1) if len(i) > 1]
+
+        assert len(trees) == 3
+
+        exprs = FindNodes(Expression).visit(trees[1])
         assert exprs[-1].write is arrays[-1]
         assert arrays[-2] not in exprs[-1].reads
 
@@ -1333,13 +1335,14 @@ class TestAliases(object):
 
         op = Operator([pde, df])
 
-        trees = retrieve_iteration_tree(op)
-        assert len(trees) == 4
+        trees = [i for i in retrieve_iteration_tree(op) if len(i) > 1]
+
+        assert len(trees) == 3
         assert len(trees[0]) == 3  # time, x, y
         assert len(trees[1]) == 2  # time, f
         assert trees[1][0].dim is time
         assert trees[1][1].dim is f
-        assert len(trees[2]) == 1
+        assert len(trees[2]) == 5
 
     def test_catch_duplicate_from_different_clusters(self):
         """
@@ -1537,7 +1540,7 @@ class TestAliases(object):
 
         # Check code generation
         trees = retrieve_iteration_tree(op1)
-        assert len(trees) == 3  # Expected two separate blocked loop nests
+        assert len(trees) == 2  # Expected two separate blocked loop nests
         xs, ys, zs = self.get_params(op1, 'x_size', 'y_size', 'z_size')
         arrays = [i for i in FindSymbols().visit(op1) if i.is_Array]
         assert len(arrays) == 1
@@ -1867,11 +1870,12 @@ class TestAliases(object):
         op1 = Operator(eq, opt=('advanced', {'cire-maxpar': True, 'cire-rotate': rotate}))
 
         # Check code generation
-        trees = retrieve_iteration_tree(op1)
-        assert len(trees) == 3
-        assert trees[1][1] is trees[2][1]
-        assert trees[1][2] is trees[2][2]
-        assert trees[1][2] is not trees[2][1]
+        trees = [i for i in retrieve_iteration_tree(op1) if len(i) > 1]
+
+        assert len(trees) == 2
+        assert trees[0][1] is trees[1][1]
+        assert trees[0][2] is trees[1][2]
+        assert trees[0][2] is not trees[1][1]
 
         # Check numerical output
         op0.apply(time_M=2)
@@ -2117,8 +2121,8 @@ class TestIsoAcoustic(object):
         u1, rec1, summary1, op1 = self.run_acoustic_forward(opt='advanced')
 
         assert len(op0._func_table) == 0
-        trees = retrieve_iteration_tree(op1)
-        assert len(trees) == 4  # due to loop blocking
+        trees = [i for i in retrieve_iteration_tree(op0) if len(i) > 1]
+        assert len(trees) == 3  # due to loop blocking
 
         assert summary0[('section0', None)].ops == 50
         assert summary0[('section1', None)].ops == 151

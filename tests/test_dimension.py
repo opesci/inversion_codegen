@@ -1075,7 +1075,7 @@ class TestConditionalDimension(object):
         assert len(exprs) == 4
         assert exprs[1].expr.rhs is exprs[0].output
         assert exprs[2].expr.rhs is exprs[0].output
-        
+
     @skipif('device')
     def test_no_fusion_convoluted(self):
         """
@@ -1165,7 +1165,7 @@ class TestMashup(object):
 
         # Check generated code -- expect the gsave equation to be scheduled together
         # in the same loop nest with the fsave equation
-        
+
         exprs = FindNodes(Expression).visit(op)
         assert len(exprs) == 6
         assert exprs[0].write is f
@@ -1203,7 +1203,7 @@ class TestMashup(object):
         # Check generated code -- expect the gsave equation to be scheduled together
         # in the same loop nest with the fsave equation
         assert len(FindNodes(Expression).visit(op)) == 6
-        
+
     def test_topofusion_w_subdims_conddims_v3(self):
         """
         Like `test_topofusion_w_subdims_conddims_v2` but with an extra anti-dependence,

@@ -1,13 +1,13 @@
 import numpy as np
 import cgen as c
-from sympy import And, Or, Max
+from sympy import Max
 
 from devito.data import FULL
-from devito.ir import (DummyEq, Conditional, Dereference, Expression, ExpressionBundle,
-                       List, ParallelTree, Prodder, FindSymbols, FindNodes, Return,
+from devito.ir import (DummyEq, Dereference, Expression, ExpressionBundle,
+                       List, ParallelTree, Prodder, FindSymbols, FindNodes,
                        VECTORIZED, Transformer, IsPerfectIteration, filter_iterations,
                        retrieve_iteration_tree)
-from devito.symbolics import CondEq, INT, ccode
+from devito.symbolics import INT, ccode
 from devito.passes.iet.engine import iet_pass
 from devito.passes.iet.langbase import LangBB, LangTransformer, DeviceAwareMixin
 from devito.passes.iet.misc import is_on_device
@@ -42,12 +42,14 @@ class PragmaSimdTransformer(PragmaTransformer):
     def make_simd(self, iet):
         mapper = {}
         for tree in retrieve_iteration_tree(iet):
+
             candidates = [i for i in tree if i.is_ParallelRelaxed]
             # As long as there's an outer level of parallelism, the innermost
             # PARALLEL Iteration gets vectorized
             if len(candidates) < 2:
                 continue
             candidate = candidates[-1]
+
             # Only fully-parallel Iterations will be SIMD-ized (ParallelRelaxed
             # might not be enough then)
             if not candidate.is_Parallel:
@@ -66,6 +68,7 @@ class PragmaSimdTransformer(PragmaTransformer):
 
             # Add VECTORIZED property
             properties = list(candidate.properties) + [VECTORIZED]
+
             mapper[candidate] = candidate._rebuild(pragmas=pragmas, properties=properties)
 
         iet = Transformer(mapper).visit(iet)
@@ -270,16 +273,6 @@ class PragmaShmTransformer(PragmaSimdTransformer):
 
         return self.Region(partree)
 
-    def _make_guard(self, parregion):
-        # Do not enter the parallel region if the step increment is 0; this
-        # would raise a `Floating point exception (core dumped)` in some OpenMP
-        # implementations. Note that using an OpenMP `if` clause won't work
-        cond = Or(*[CondEq(i.step, 0) for i in parregion.collapsed
-                    if isinstance(i.step, Symbol)])
-        if cond != False:  # noqa: `cond` may be a sympy.False which would be == False
-            parregion = List(body=[Conditional(cond, Return()), parregion])
-        return parregion
-
     def _make_nested_partree(self, partree):
         # Apply heuristic
         if self.nhyperthreads <= self.nested:
@@ -348,9 +341,6 @@ class PragmaShmTransformer(PragmaSimdTransformer):
 
             # Wrap within a parallel region
             parregion = self._make_parregion(partree, parrays)
-
-            # Protect the parallel region if necessary
-            parregion = self._make_guard(parregion)
 
             mapper[root] = parregion
 
@@ -426,33 +416,6 @@ class PragmaDeviceAwareTransformer(DeviceAwareMixin, PragmaShmTransformer):
             return partree
         else:
             return super()._make_parregion(partree, *args)
-
-    def _make_guard(self, parregion, *args):
-        partrees = FindNodes(ParallelTree).visit(parregion)
-        if not any(isinstance(i.root, self.DeviceIteration) for i in partrees):
-            return super()._make_guard(parregion, *args)
-
-        cond = []
-        # There must be at least one iteration or potential crash
-        if not parregion.is_Affine:
-            trees = retrieve_iteration_tree(parregion.root)
-            tree = trees[0][:parregion.ncollapsed]
-            cond.extend([i.symbolic_size > 0 for i in tree])
-
-        # SparseFunctions may occasionally degenerate to zero-size arrays. In such
-        # a case, a copy-in produces a `nil` pointer on the device. To fire up a
-        # parallel loop we must ensure none of the SparseFunction pointers are `nil`
-        symbols = FindSymbols().visit(parregion)
-        sfs = [i for i in symbols if i.is_SparseFunction]
-        if sfs:
-            size = [prod(f._C_get_field(FULL, d).size for d in f.dimensions) for f in sfs]
-            cond.extend([i > 0 for i in size])
-
-        # Combine all cond elements
-        if cond:
-            parregion = List(body=[Conditional(And(*cond), parregion)])
-
-        return parregion
 
     def _make_nested_partree(self, partree):
         if isinstance(partree.root, self.DeviceIteration):
