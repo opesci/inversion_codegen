@@ -1819,10 +1819,10 @@ class TestAliases(object):
 
     @switchconfig(profiling='advanced')
     @pytest.mark.parametrize('expr,exp_arrays,exp_ops', [
-        ('f.dx.dx + g.dx.dx',
-         (1, 1, 2, (0, 1)), (46, 40, 49, 16)),
+#        ('f.dx.dx + g.dx.dx',
+#         (1, 2, (0, 1)), (46, 61, 16)),
         ('v.dx.dx + p.dx.dx',
-         (2, 2, 2, (0, 2)), (61, 49, 49, 24)),
+         (2, 2, (0, 2)), (61, 61, 25)),
         ('(v.dx + v.dy).dx - (v.dx + v.dy).dy + 2*f.dx.dx + f*f.dy.dy + f.dx.dx(x0=1)',
          (2, 2, 4, (0, 2)), (262, 250, 259, 92)),
         ('(g*(1 + f)*v.dx).dx + (2*g*f*v.dx).dx',
@@ -1854,28 +1854,26 @@ class TestAliases(object):
 
         eqn = Eq(v.forward, eval(expr))
 
-        op0 = Operator(eqn, opt=('noop', {'openmp': True}))
+        #op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('collect-derivs', 'cire-sops', {'openmp': True}))
-        op2 = Operator(eqn, opt=('collect-derivs', 'cire-sops', {'openmp': True}))
-        op3 = Operator(eqn, opt=('cire-sops', {'openmp': True}))
-        op4 = Operator(eqn, opt=('advanced', {'openmp': True}))
+        op2 = Operator(eqn, opt=('cire-sops', {'openmp': True}))
+        op3 = Operator(eqn, opt=('advanced', {'openmp': True}))
+        from IPython import embed; embed()
 
         # Check code generation
         arrays = [i for i in FindSymbols().visit(op1) if i.is_Array]
         assert len(arrays) == exp_arrays[0]
         arrays = [i for i in FindSymbols().visit(op2) if i.is_Array]
         assert len(arrays) == exp_arrays[1]
-        arrays = [i for i in FindSymbols().visit(op3) if i.is_Array]
-        assert len(arrays) == exp_arrays[2]
-        arrays = [i for i in FindSymbols().visit(op4._func_table['bf0']) if i.is_Array]
-        exp_inv, exp_sops = exp_arrays[3]
+        arrays = [i for i in FindSymbols().visit(op3._func_table['bf0']) if i.is_Array]
+        exp_inv, exp_sops = exp_arrays[2]
         assert len(arrays) == exp_inv + exp_sops
-        assert len(FindNodes(VExpanded).visit(op4._func_table['bf0'])) == exp_sops
+        assert len(FindNodes(VExpanded).visit(op3._func_table['bf0'])) == exp_sops
 
         # Check numerical output
         op0(time_M=20)
         exp_v = norm(v)
-        for n, op in enumerate([op1, op2, op3, op4]):
+        for n, op in enumerate([op1, op2, op3]):
             v1 = TimeFunction(name="v", grid=grid, space_order=4)
             v1.data_with_halo[:] = 1.2
 
