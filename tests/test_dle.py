@@ -107,20 +107,16 @@ def test_cache_blocking_structure(blockinner, exp_calls, exp_iters):
                                              'blockinner': blockinner,
                                              'par-collapse-ncores': 1}))
     trees = retrieve_iteration_tree(op)
-    assert len(trees) == 2
-    tree = trees[1]
+    assert len(trees) == 1
+    tree = trees[0]
     assert len(tree.root.pragmas) == 0
-    assert 'omp for' in trees[1][1].pragmas[0].value
+    assert 'omp for' in trees[0][1].pragmas[0].value
     # Also, with omp parallelism enabled, the step increment must be != 0
     # to avoid omp segfaults at scheduling time (only certain omp implementations,
     # including Intel's)
     conditionals = FindNodes(Conditional).visit(op)
 
-    assert len(conditionals) == 1
-    conds = conditionals[0].condition.args
-    expected_guarded = tree[1:3+blockinner]
-    assert len(conds) == len(expected_guarded)
-    assert all(i.lhs == j.step for i, j in zip(conds, expected_guarded))
+    assert len(conditionals) == 0
 
 
 def test_cache_blocking_structure_subdims():
@@ -146,7 +142,7 @@ def test_cache_blocking_structure_subdims():
 
     # Non-local SubDimension -> blocking expected
     op = Operator(Eq(f.forward, f + 1, subdomain=grid.interior))
-    trees = [i for i in retrieve_iteration_tree(op) if len(i) > 1]
+    trees = [i for i in retrieve_iteration_tree(op)]
 
     assert len(trees) == 1
     tree = trees[0]
@@ -778,8 +774,8 @@ class TestNestedParallelism(object):
                             'par-collapse-ncores': 2,
                             'par-dynamic-work': 0}))
         trees = retrieve_iteration_tree(op)
-        assert len(trees) == 2
-        tree = trees[1]
+        assert len(trees) == 1
+        tree = trees[0]
         assert len(tree) == 6 + (blocklevels - 1) * 2
         assert tree[1].dim.is_Incr and tree[1].dim.parent is xi and tree[1].dim.root is x
         assert tree[2].dim.is_Incr and tree[2].dim.parent is yi and tree[2].dim.root is y
@@ -801,8 +797,46 @@ class TestNestedParallelism(object):
             assert not tree[7].dim.is_Incr and tree[7].dim is zi and\
                 tree[7].dim.parent is z
 
-        assert trees[1][1].pragmas[0].value ==\
+        assert trees[0][1].pragmas[0].value ==\
             'omp for collapse(2) schedule(dynamic,1)'
-        assert trees[1][3].pragmas[0].value == ('omp parallel for collapse(2) '
+        assert trees[0][3].pragmas[0].value == ('omp parallel for collapse(2) '
                                                 'schedule(dynamic,1) '
                                                 'num_threads(nthreads_nested)')
+
+    @pytest.mark.parametrize('exprs,collapsed,scheduling', [
+        (['Eq(u.forward, u + 2)'],
+         '2', 'static'),
+        (['Eq(u.forward, u.dx)'],
+         '2', 'static'),
+        (['Eq(u.forward, u.dy)'],
+         '1', 'static'),
+        (['Eq(u.forward, u.dx.dx)'],
+         '2', 'dynamic'),
+        (['Eq(u.forward, u.dy.dy)'],
+         '1', 'dynamic'),
+    ])
+    def test_collapsing_w_wo_halo(self, exprs, collapsed, scheduling):
+        """
+        This test ensures correct number of
+        collapsed loops and scheduling for several expressions
+        based on the amount of work (par-dynamic-work).
+        """
+
+        grid = Grid(shape=(10, 10, 10))
+
+        u = TimeFunction(name='u', grid=grid, space_order=4) # noqa
+
+        eqns = []
+        for e in exprs:
+            eqns.append(eval(e))
+
+        op = Operator(eqns, opt=('blocking', 'openmp',
+                                 {'par-collapse-ncores': 1,
+                                  'par-dynamic-work': 20}))
+
+        # Does it compile? Honoring the OpenMP specification isn't trivial
+        assert op.cfunction
+        iterations = FindNodes(Iteration).visit(op)
+        ompfor_string = str('omp for collapse('+collapsed+') ')
+        scheduling_string = str('schedule('+scheduling+',1)')
+        assert iterations[1].pragmas[0].value == ompfor_string+scheduling_string
