@@ -275,7 +275,6 @@ class Operator(Callable):
         expressions = cls._specialize_dsl(expressions, **kwargs)
 
         # Lower functional DSL
-        from IPython import embed; embed()
         expressions = flatten([i.evaluate for i in expressions])
         expressions = [j for i in expressions for j in i._flatten]
 
