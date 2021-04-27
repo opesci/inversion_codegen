@@ -1447,6 +1447,26 @@ class TestAliases(object):
         assert len(arrays) == 2
         assert all(i._mem_heap and not i._mem_external for i in arrays)
 
+    def test_discarded_compound(self):
+        """
+        Test that compound aliases may be ignored if part of a bigger alias.
+        """
+        grid = Grid((10, 10))
+        dt = grid.time_dim.spacing
+
+        a = Function(name="a", grid=grid, space_order=4)
+        e = TimeFunction(name="e", grid=grid, space_order=4)
+
+        eqn = Eq(e.forward, e/(1./cos(a) + 1/(dt**2*a**2)) + dt**-2 + a**-2)
+
+        op = Operator(eqn)
+
+        trees = retrieve_iteration_tree(op)
+        assert len(trees) == 2
+        arrays = [i for i in FindSymbols().visit(trees[0].root) if i.is_Array]
+        assert len(arrays) == 1
+        assert all(i._mem_heap and not i._mem_external for i in arrays)
+
     def test_lazy_solve_produces_larger_temps(self):
         """
         Test that using `solve` doesn't affect CIRE.
@@ -1459,7 +1479,10 @@ class TestAliases(object):
         eq = Eq(u.forward, solve(pde, u.forward))
 
         op = Operator(eq)
+        assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 1
+        assert op._profiler._sections['section0'].sops == 59
 
+        op = Operator(eq, opt=('advanced', {'cire-schedule': 0}))
         assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 2
         assert op._profiler._sections['section0'].sops == 39
 
@@ -2062,7 +2085,8 @@ class TestAliases(object):
         eqn = Eq(p.forward, ((1+sqrt(eps)) * p.dy).dy + (p.dz).dz)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-rotate': rotate}))
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-rotate': rotate,
+                                              'min-storage': True}))
 
         # Check code generation
         # `min-storage` leads to one 2D and one 3D Arrays

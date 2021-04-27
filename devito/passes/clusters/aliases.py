@@ -265,8 +265,13 @@ class CireInvariants(CireTransformer, Queue):
         yield basextr
 
         # E.g., extract `sin(x)*cos(x)` from `a*sin(x)*cos(x)`
-        rule = lambda e: any(a in basextr for a in e.args)
-        cbk_search = lambda e: search(e, rule, 'all', 'dfs')
+        def cbk_search(expr):
+            found, others = split(expr.args, lambda a: a in basextr)
+            ret = [expr] if found else []
+            for a in others:
+                ret.extend(cbk_search(a))
+            return ret
+
         cbk_compose = lambda e: split(e.args, lambda a: a in basextr)[0]
         yield self._do_generate(exprs, exclude, cbk_search, cbk_compose)
 
@@ -517,7 +522,7 @@ def collect(extracted, ispace, minstorage, mingain):
             na = len(aliaseds)
             nr = nredundants(ispace, pivot)
             try:
-                score = estimate_cost(pivot, True)*((na - 1) + nr) // mingain
+                score = estimate_cost(pivot, True)*((na - 1) + nr) / mingain
             except ZeroDivisionError:
                 score = np.inf
             if score > 0:
@@ -537,17 +542,19 @@ def choose(aliases, exprs, mapper):
     if not aliases:
         return exprs, aliases
 
-    # Project the candidate aliases into exprs to determine what the new
-    # working set would be
+    # Filter off the aliases with low score
+    key = lambda a: a.score >= 1
+    aliases.filter(key)
+
+    # Project the candidate aliases into `exprs` to derive the final working set
     mapper = {k: v for k, v in mapper.items() if v.free_symbols & set(aliases.aliaseds)}
     templated = [uxreplace(e, mapper) for e in exprs]
-
-    # Filter off the aliases inducing a non favorable tradeoff between operation
-    # count reduction and working set size increase
     owset = wset(templated)
+
+    # Filter off the aliases with a weak flop-reduction / working-set tradeoff
     key = lambda a: \
-        a.score > 2 or \
-        1 <= a.score <= 2 and max(len(wset(a.pivot)), 1) > len(wset(a.pivot) & owset)
+        a.score > 3 or \
+        1 <= a.score <= 3 and max(len(wset(a.pivot)), 1) > len(wset(a.pivot) & owset)
     aliases.filter(key)
 
     if not aliases:
