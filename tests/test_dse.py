@@ -1819,17 +1819,16 @@ class TestAliases(object):
 
     @switchconfig(profiling='advanced')
     @pytest.mark.parametrize('expr,exp_arrays,exp_ops', [
-#        ('f.dx.dx + g.dx.dx',
-#         (1, 2, (0, 1)), (46, 61, 16)),
+        ('f.dx.dx + g.dx.dx',
+         (1, 2, (0, 1)), (46, 61, 16)),
         ('v.dx.dx + p.dx.dx',
          (2, 2, (0, 2)), (61, 61, 25)),
         ('(v.dx + v.dy).dx - (v.dx + v.dy).dy + 2*f.dx.dx + f*f.dy.dy + f.dx.dx(x0=1)',
-         (2, 2, 4, (0, 2)), (262, 250, 259, 92)),
+         (3, 3, (0, 3)), (217, 201, 74)),
         ('(g*(1 + f)*v.dx).dx + (2*g*f*v.dx).dx',
-         (1, 1, 2, (0, 1)), (50, 44, 53, 18)),
-        pytest.param('g*(f.dx.dx + g.dx.dx)', (1, 1, 2, (0, 1)), (47, 41, 50, 18),
-                     marks=pytest.mark.xfail(reason="must catch derivatives, not sops, "
-                                                    "or it will get nr=1 at collect()")),
+         (1, 1, (0, 1)), (50, 62, 18)),
+        ('g*(f.dx.dx + g.dx.dx)',
+         (1, 2, (0, 1)), (47, 62, 17)),
     ])
     def test_sum_of_nested_derivatives(self, expr, exp_arrays, exp_ops):
         """
@@ -1854,11 +1853,10 @@ class TestAliases(object):
 
         eqn = Eq(v.forward, eval(expr))
 
-        #op0 = Operator(eqn, opt=('noop', {'openmp': True}))
+        op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('collect-derivs', 'cire-sops', {'openmp': True}))
         op2 = Operator(eqn, opt=('cire-sops', {'openmp': True}))
         op3 = Operator(eqn, opt=('advanced', {'openmp': True}))
-        from IPython import embed; embed()
 
         # Check code generation
         arrays = [i for i in FindSymbols().visit(op1) if i.is_Array]
