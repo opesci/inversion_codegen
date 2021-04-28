@@ -2347,7 +2347,7 @@ class TestTTIv2(object):
 
     @switchconfig(profiling='advanced')
     @pytest.mark.parametrize('space_order,expected', [
-        (4, 197), (12, 389)
+        (4, 191), (12, 383)
     ])
     def test_opcounts(self, space_order, expected):
         grid = Grid(shape=(3, 3, 3))
@@ -2384,8 +2384,12 @@ class TestTTIv2(object):
 
         eqns = [Eq(u.forward, (2*u - u.backward) + s**2/m * (e * H2u + H1v)),
                 Eq(v.forward, (2*v - v.backward) + s**2/m * (d * H2v + H1v))]
-        op = Operator(eqns)
+        op = Operator(eqns, openmp=True)
 
+        # Check code generation
+        arrays = FindNodes(VExpanded).visit(op._func_table['bf0'])
+        assert len(arrays) == 4
+        assert all(len(i.pointee.shape) == 2 for i in arrays)  # Expected 2D arrays
         sections = list(op._profiler._sections.values())
         assert len(sections) == 2
         assert sections[0].sops == 4
