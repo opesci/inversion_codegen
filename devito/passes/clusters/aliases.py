@@ -656,7 +656,6 @@ def _optimize_schedule_rotations(schedule, sregistry):
     """
     # The rotations Dimension is the outermost
     ridx = 0
-
     rmapper = defaultdict(list)
     processed = []
     for k, group in groupby(schedule, key=lambda i: i.writeto):
