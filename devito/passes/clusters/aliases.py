@@ -114,9 +114,8 @@ class CireTransformer(object):
         variants = []
         for mapper in self._generate(exprs, exclude):
             # Clusters -> AliasList
-            found = collect(mapper.extracted, meta.ispace,
-                            self.opt_minstorage, self.opt_mingain)
-            pexprs, aliases = choose(found, exprs, mapper)
+            found = collect(mapper.extracted, meta.ispace, self.opt_minstorage)
+            pexprs, aliases = choose(found, exprs, mapper, self.opt_mingain)
             if not aliases:
                 continue
 
@@ -352,7 +351,7 @@ class CireSops(CireTransformer):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
 
 
-def collect(extracted, ispace, minstorage, mingain):
+def collect(extracted, ispace, minstorage):
     """
     Find groups of aliasing expressions.
 
@@ -518,20 +517,17 @@ def collect(extracted, ispace, minstorage, mingain):
                 distance = [(d, set(v)) for d, v in LabeledVector.transpose(*distance)]
                 distances.append(LabeledVector([(d, v.pop()) for d, v in distance]))
 
-            # Compute the alias score. With a score of 0, the alias is discarded
+            # Compute the alias score
             na = len(aliaseds)
             nr = nredundants(ispace, pivot)
-            try:
-                score = estimate_cost(pivot, True)*((na - 1) + nr) / mingain
-            except ZeroDivisionError:
-                score = np.inf
+            score = estimate_cost(pivot, True)*((na - 1) + nr)
             if score > 0:
                 aliases.add(pivot, aliaseds, list(mapper), distances, score)
 
     return aliases
 
 
-def choose(aliases, exprs, mapper):
+def choose(aliases, exprs, mapper, mingain):
     """
     Analyze the detected aliases and, after applying a cost model to rule out
     the aliases with a bad memory/flops trade-off, inject them into the original
@@ -539,11 +535,17 @@ def choose(aliases, exprs, mapper):
     """
     aliases = AliasList(aliases)
 
+    # `score < m` => discarded
+    # `score > M` => optimized
+    # `m <= score <= M` => maybe discarded, maybe optimized -- depends on heuristics
+    m = mingain
+    M = mingain*3
+
     if not aliases:
         return exprs, aliases
 
     # Filter off the aliases with low score
-    key = lambda a: a.score >= 1
+    key = lambda a: a.score >= m
     aliases.filter(key)
 
     # Project the candidate aliases into `exprs` to derive the final working set
@@ -553,8 +555,8 @@ def choose(aliases, exprs, mapper):
 
     # Filter off the aliases with a weak flop-reduction / working-set tradeoff
     key = lambda a: \
-        a.score > 3 or \
-        1 <= a.score <= 3 and max(len(wset(a.pivot)), 1) > len(wset(a.pivot) & owset)
+        a.score > M or \
+        m <= a.score <= M and max(len(wset(a.pivot)), 1) > len(wset(a.pivot) & owset)
     aliases.filter(key)
 
     if not aliases:
@@ -865,7 +867,7 @@ def pick_best(variants, schedule_strategy):
             return variants[schedule_strategy]
         except IndexError:
             raise ValueError("Illegal schedule strategy %d; accepted `[0, %d]"
-                             % len(variants))
+                             % (schedule_strategy, len(variants)))
 
     best = None
     best_flops_score = None
@@ -900,25 +902,18 @@ def pick_best(variants, schedule_strategy):
             best, best_flops_score, best_ws_score = i, i_flops_score, i_ws_score
             continue
 
-        # The variant with the best OI shift wins
-        if i_ws_score == 0 and best_ws_score == 0:
-            # Degenerate case
-            if i_flops_score > best_flops_score:
-                best, best_flops_score, best_ws_score = i, i_flops_score, i_ws_score
-        elif i_ws_score == 0 or best_ws_score == 0:
-            # Degenerate case, don't know what to do, ignore
-            continue
-        else:
-            i_score = i_flops_score/i_ws_score
-            best_score = best_flops_score/best_ws_score
-            if i_score >= best_score:
-                # `i >= best` => we have a new champion
-                best, best_flops_score, best_ws_score = i, i_flops_score, i_ws_score
-            elif best_score / i_score < 1.2 and i_flops_score / best_flops_score > 1.75:
-                # `i < best`, but there's however a significant bump in flop
-                # reduction. Heuristically, we privilege `i`, which experience
-                # suggests to be a very good variant
-                best, best_flops_score, best_ws_score = i, i_flops_score, i_ws_score
+        # If `i` has a better flop reduction using fewer temporaries, no doubts
+        # that it's gonna be our next `best`. But if the better flop reduction
+        # comes at the price of using more temporaries, then we have to apply
+        # heuristics, in particular we calculate how many flops is a temporary
+        # allowing us to save on average, and if above a certain threshold,
+        # we pick a new `best`
+        delta_flops = best_flops_score - i_flops_score
+        delta_ws = best_ws_score - i_ws_score
+        if (delta_flops >= 0 and delta_ws > 0 and delta_flops / delta_ws < 100) or \
+           (delta_flops <= 0 and delta_ws < 0 and delta_flops / delta_ws > 100) or \
+           (delta_flops <= 0 and delta_ws >= 0):
+            best, best_flops_score, best_ws_score = i, i_flops_score, i_ws_score
 
     return best
 
@@ -1298,7 +1293,8 @@ def _deindexify(expr):
             mapper[k].extend(v)
 
     rexpr = rebuild_if_untouched(expr, args)
-    mapper[rexpr] = [expr]
+    if rexpr is not expr:
+        mapper[rexpr] = [expr]
 
     return rexpr, mapper
 
