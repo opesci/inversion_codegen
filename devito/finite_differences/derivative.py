@@ -7,7 +7,7 @@ import sympy
 from devito.finite_differences.finite_difference import (generic_derivative,
                                                          first_derivative,
                                                          cross_derivative)
-from devito.finite_differences.differentiable import Differentiable, EvalDerivative
+from devito.finite_differences.differentiable import Differentiable
 from devito.finite_differences.tools import direct, transpose
 from devito.tools import as_mapper, as_tuple, filter_ordered, frozendict
 from devito.types.utils import DimensionTuple
@@ -333,9 +333,6 @@ class Derivative(sympy.Derivative, Differentiable):
         - 3: Evaluate remaining terms (as `g` may need to be evaluated
         at a different point).
         - 4: Apply substitutions.
-        - 5: Cast to an object of type `EvalDerivative` so that we know
-             the argument stems from a `Derivative. This may be useful for
-             later compilation passes.
         """
         # Step 1: Evaluate derivatives within expression
         expr = getattr(expr, '_eval_deriv', expr)
@@ -358,9 +355,5 @@ class Derivative(sympy.Derivative, Differentiable):
         # Step 4: Apply substitution
         for e in self._ppsubs:
             res = res.xreplace(e)
-
-        # Step 5: Cast to EvaluatedDerivative
-        assert res.is_Add
-        res = EvalDerivative(*res.args, base=expr)
 
         return res
