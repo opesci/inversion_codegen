@@ -79,7 +79,7 @@ class Profiler(object):
             for i in mapper.values():
                 try:
                     traffic += IntervalGroup.generate('union', *i).size
-                except ValueError:
+                except (ValueError, TypeError):
                     # Over different iteration spaces
                     traffic += sum(j.size for j in i)
 
