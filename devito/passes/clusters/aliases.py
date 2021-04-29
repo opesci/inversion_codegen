@@ -1249,24 +1249,23 @@ def split_coeff(expr):
     Split potential derivative coefficients and arguments into two groups.
     """
     # TODO: Once we'll be able to keep Derivative intact down to this point,
-    # we won't need neither `split_coeff` nor `maybe_coeff` anymore
+    # we won't probably need this function anymore, because, in essence, what
+    # this function is doing is reconstructing prematurely lowered information
     grids = {getattr(i.function, 'grid', None) for i in expr.free_symbols} - {None}
     if len(grids) != 1:
         return [], None
     grid = grids.pop()
-    return split(expr.args, partial(maybe_coeff, grid))
 
+    maybe_coeff = []
+    others = []
+    for a in expr.args:
+        indexeds = [i for i in a.free_symbols if i.is_Indexed]
+        if all(not set(grid.dimensions) <= set(i.function.dimensions) for i in indexeds):
+            maybe_coeff.append(a)
+        else:
+            others.append(a)
 
-def maybe_coeff(grid, expr):
-    """
-    True if `expr` could be the coefficient of an FD derivative, False otherwise.
-    """
-    if expr.is_Number:
-        return True
-    indexeds = [i for i in expr.free_symbols if i.is_Indexed]
-    if not indexeds:
-        return True
-    return any(not set(grid.dimensions) <= set(i.function.dimensions) for i in indexeds)
+    return maybe_coeff, others
 
 
 def nredundants(ispace, expr):
