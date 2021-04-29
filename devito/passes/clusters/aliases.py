@@ -1,5 +1,5 @@
 from collections import Counter, OrderedDict, defaultdict, namedtuple
-from functools import partial, singledispatch
+from functools import singledispatch
 from itertools import groupby
 
 from cached_property import cached_property
@@ -13,9 +13,9 @@ from devito.ir import (SEQUENTIAL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
                        detect_accesses, build_intervals, normalize_properties,
                        relax_properties)
 from devito.passes.clusters.utils import timed_pass
-from devito.symbolics import (Uxmapper, compare_ops, count, estimate_cost, q_constant,
-                              q_leaf, rebuild_if_untouched, retrieve_indexed,
-                              retrieve_symbols, search, uxreplace)
+from devito.symbolics import (Uxmapper, compare_ops, estimate_cost, q_constant,
+                              rebuild_if_untouched, retrieve_indexed,
+                              search, uxreplace)
 from devito.tools import as_mapper, as_tuple, flatten, frozendict, generator, split
 from devito.types import (Array, TempFunction, Eq, Symbol, ModuloDimension,
                           CustomDimension, IncrDimension, Indexed)
@@ -158,16 +158,6 @@ class CireTransformer(object):
 
         return processed
 
-    def _generate(self, exprs, exclude):
-        """
-        Generate one or more extractions from ``exprs``. An extraction is a
-        set of CIRE candidates which may be turned into aliases. Two different
-        extractions may contain overlapping sub-expressions and, therefore,
-        should be processed and evaluated indipendently. A CIRE candidate won't
-        contain any of the symbols appearing in ``exclude``.
-        """
-        raise NotImplementedError
-
     def _do_generate(self, exprs, exclude, cbk_search, cbk_compose=None):
         """
         Carry out the bulk of the work of ``_generate``.
@@ -198,12 +188,22 @@ class CireTransformer(object):
 
         return mapper
 
+    def _generate(self, exprs, exclude):
+        """
+        Generate one or more extractions from ``exprs``. An extraction is a
+        set of CIRE candidates which may be turned into aliases. Two different
+        extractions may contain overlapping sub-expressions and, therefore,
+        should be processed and evaluated indipendently. An extraction won't
+        contain any of the symbols appearing in ``exclude``.
+        """
+        raise NotImplementedError
+
     def _lookup_key(self, c):
         """
-        Create a key for the given Cluster. Clusters with same key may be processed
-        together to find redundant aliases. Clusters should have a different key
-        if they cannot be processed together, e.g., when this would lead to
-        dependencies violation.
+        Create a key for the given Cluster. Clusters with same key may be
+        processed together in the search for CIRE candidates. Clusters should
+        have a different key if they must not be processed together, e.g.,
+        when this would lead to violation of data dependencies.
         """
         raise NotImplementedError
 
@@ -286,6 +286,7 @@ class CireInvariants(CireTransformer, Queue):
         ispace = c.ispace.reset()
         dintervals = c.dspace.intervals.drop(d).reset()
         properties = frozendict({d: relax_properties(v) for d, v in c.properties.items()})
+
         return AliasKey(ispace, dintervals, c.dtype, None, properties)
 
     def _betterv(self, delta_flops, delta_ws):
@@ -316,8 +317,9 @@ class CireSops(CireTransformer):
             # u[x, y] = ... r0*a[x, y] ...
             exclude = {i.source.indexed for i in c.scope.d_flow.independent()}
 
-            #TODO: TO OPT NESTED DERIVATIVES, JUST KEEP ITERATING UNTIL
-            # MADE'S PROCESSED-PART IS EMPTY
+            # TODO: to process third- and higher-order derivatives, we could
+            # extend this by calling `_aliases_from_clusters` repeatedly until
+            # `made` is empty. To be investigated
             made = self._aliases_from_clusters([c], exclude, self._lookup_key(c))
 
             processed.extend(flatten(made) or [c])
@@ -369,8 +371,8 @@ class CireSops(CireTransformer):
         # comes at the price of using more temporaries, then we have to apply
         # heuristics, in particular we estimate how many flops would a temporary
         # allow to save
-        return ((delta_flops >= 0 and delta_ws > 0 and delta_flops / delta_ws < 50) or
-                (delta_flops <= 0 and delta_ws < 0 and delta_flops / delta_ws > 50) or
+        return ((delta_flops >= 0 and delta_ws > 0 and delta_flops / delta_ws < 15) or
+                (delta_flops <= 0 and delta_ws < 0 and delta_flops / delta_ws > 15) or
                 (delta_flops <= 0 and delta_ws >= 0))
 
 
@@ -785,7 +787,7 @@ def optimize_schedule_padding(schedule, meta, platform):
     for i in schedule:
         try:
             it = i.ispace.itintervals[-1]
-            if it.dim is i.writeto[-1].dim and  ROUNDABLE in meta.properties[it.dim]:
+            if it.dim is i.writeto[-1].dim and ROUNDABLE in meta.properties[it.dim]:
                 vl = platform.simd_items_per_reg(meta.dtype)
                 ispace = i.ispace.add(Interval(it.dim, 0, it.interval.size % vl))
             else:
@@ -889,33 +891,20 @@ def pick_best(variants, schedule_strategy, betterv):
         try:
             return variants[schedule_strategy]
         except IndexError:
-            raise ValueError("Illegal schedule strategy %d; accepted `[0, %d]"
-                             % (schedule_strategy, len(variants)))
+            raise ValueError("Illegal schedule strategy %d; accepted `[0, %d]`"
+                             % (schedule_strategy, len(variants) - 1))
 
     best = None
     best_flops_score = None
     best_ws_score = None
 
     for i in variants:
-        # The _actual_ flop reduction must take into account the common
-        # subexpressions as well, or a variant might be erroneously judged
-        # less expensive than a variant which has multiple, partially
-        # overlapping SchedAlias, such as one with `cos(x)`, `sin(x)`
-        # and `cos(x)*sin(x)` VS one with only `cos(x)` and `sin(x)`, where
-        # the latter clearly is "better" since it only uses two temps
-        i_flops_score = 0
-        symbols = retrieve_symbols(i.exprs)
-        for sa in i.schedule:
-            na = len(sa.aliaseds)
-            nt = sum(symbols.count(i) for i in sa.aliaseds)
-            assert nt >= na > 0
-            i_flops_score += (sa.score/na)*nt
+        i_flops_score = sum(sa.score for sa in i.schedule)
 
         # The working set score depends on the number and dimensionality of
         # temporaries required by the Schedule
         i_ws_count = Counter([len(sa.writeto) for sa in i.schedule])
         i_ws_score = tuple(i_ws_count[sa + 1] for sa in reversed(range(max(i_ws_count))))
-
         # TODO: For now, we assume the performance impact of an N-dimensional
         # temporary is always the same regardless of the value N, but this might
         # change in the future
@@ -1247,24 +1236,23 @@ def split_coeff(expr):
     Split potential derivative coefficients and arguments into two groups.
     """
     # TODO: Once we'll be able to keep Derivative intact down to this point,
-    # we won't need neither `split_coeff` nor `maybe_coeff` anymore
+    # we won't probably need this function anymore, because, in essence, what
+    # this function is doing is reconstructing prematurely lowered information
     grids = {getattr(i.function, 'grid', None) for i in expr.free_symbols} - {None}
     if len(grids) != 1:
         return [], None
     grid = grids.pop()
-    return split(expr.args, partial(maybe_coeff, grid))
 
+    maybe_coeff = []
+    others = []
+    for a in expr.args:
+        indexeds = [i for i in a.free_symbols if i.is_Indexed]
+        if all(not set(grid.dimensions) <= set(i.function.dimensions) for i in indexeds):
+            maybe_coeff.append(a)
+        else:
+            others.append(a)
 
-def maybe_coeff(grid, expr):
-    """
-    True if `expr` could be the coefficient of an FD derivative, False otherwise.
-    """
-    if expr.is_Number:
-        return True
-    indexeds = [i for i in expr.free_symbols if i.is_Indexed]
-    if not indexeds:
-        return True
-    return any(not set(grid.dimensions) <= set(i.function.dimensions) for i in indexeds)
+    return maybe_coeff, others
 
 
 def nredundants(ispace, expr):
