@@ -158,16 +158,6 @@ class CireTransformer(object):
 
         return processed
 
-    def _generate(self, exprs, exclude):
-        """
-        Generate one or more extractions from ``exprs``. An extraction is a
-        set of CIRE candidates which may be turned into aliases. Two different
-        extractions may contain overlapping sub-expressions and, therefore,
-        should be processed and evaluated indipendently. A CIRE candidate won't
-        contain any of the symbols appearing in ``exclude``.
-        """
-        raise NotImplementedError
-
     def _do_generate(self, exprs, exclude, cbk_search, cbk_compose=None):
         """
         Carry out the bulk of the work of ``_generate``.
@@ -198,12 +188,22 @@ class CireTransformer(object):
 
         return mapper
 
+    def _generate(self, exprs, exclude):
+        """
+        Generate one or more extractions from ``exprs``. An extraction is a
+        set of CIRE candidates which may be turned into aliases. Two different
+        extractions may contain overlapping sub-expressions and, therefore,
+        should be processed and evaluated indipendently. An extraction won't
+        contain any of the symbols appearing in ``exclude``.
+        """
+        raise NotImplementedError
+
     def _lookup_key(self, c):
         """
-        Create a key for the given Cluster. Clusters with same key may be processed
-        together to find redundant aliases. Clusters should have a different key
-        if they cannot be processed together, e.g., when this would lead to
-        dependencies violation.
+        Create a key for the given Cluster. Clusters with same key may be
+        processed together in the search for CIRE candidates. Clusters should
+        have a different key if they must not be processed together, e.g.,
+        when this would lead to violation of data dependencies.
         """
         raise NotImplementedError
 
@@ -286,6 +286,7 @@ class CireInvariants(CireTransformer, Queue):
         ispace = c.ispace.reset()
         dintervals = c.dspace.intervals.drop(d).reset()
         properties = frozendict({d: relax_properties(v) for d, v in c.properties.items()})
+
         return AliasKey(ispace, dintervals, c.dtype, None, properties)
 
     def _betterv(self, delta_flops, delta_ws):
@@ -316,8 +317,9 @@ class CireSops(CireTransformer):
             # u[x, y] = ... r0*a[x, y] ...
             exclude = {i.source.indexed for i in c.scope.d_flow.independent()}
 
-            #TODO: TO OPT NESTED DERIVATIVES, JUST KEEP ITERATING UNTIL
-            # MADE'S PROCESSED-PART IS EMPTY
+            # TODO: to process third- and higher-order derivatives, we could
+            # extend this by calling `_aliases_from_clusters` repeatedly until
+            # `made` is empty. To be investigated
             made = self._aliases_from_clusters([c], exclude, self._lookup_key(c))
 
             processed.extend(flatten(made) or [c])
