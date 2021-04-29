@@ -891,33 +891,20 @@ def pick_best(variants, schedule_strategy, betterv):
         try:
             return variants[schedule_strategy]
         except IndexError:
-            raise ValueError("Illegal schedule strategy %d; accepted `[0, %d]"
-                             % (schedule_strategy, len(variants)))
+            raise ValueError("Illegal schedule strategy %d; accepted `[0, %d]`"
+                             % (schedule_strategy, len(variants) - 1))
 
     best = None
     best_flops_score = None
     best_ws_score = None
 
     for i in variants:
-        # The _actual_ flop reduction must take into account the common
-        # subexpressions as well, or a variant might be erroneously judged
-        # less expensive than a variant which has multiple, partially
-        # overlapping SchedAlias, such as one with `cos(x)`, `sin(x)`
-        # and `cos(x)*sin(x)` VS one with only `cos(x)` and `sin(x)`, where
-        # the latter clearly is "better" since it only uses two temps
-        i_flops_score = 0
-        symbols = retrieve_symbols(i.exprs)
-        for sa in i.schedule:
-            na = len(sa.aliaseds)
-            nt = sum(symbols.count(i) for i in sa.aliaseds)
-            assert nt >= na > 0
-            i_flops_score += (sa.score/na)*nt
+        i_flops_score = sum(sa.score for sa in i.schedule)
 
         # The working set score depends on the number and dimensionality of
         # temporaries required by the Schedule
         i_ws_count = Counter([len(sa.writeto) for sa in i.schedule])
         i_ws_score = tuple(i_ws_count[sa + 1] for sa in reversed(range(max(i_ws_count))))
-
         # TODO: For now, we assume the performance impact of an N-dimensional
         # temporary is always the same regardless of the value N, but this might
         # change in the future

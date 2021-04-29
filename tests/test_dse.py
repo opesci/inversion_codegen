@@ -1241,7 +1241,7 @@ class TestAliases(object):
         exprs = FindNodes(Expression).visit(op)
         sqrt_exprs = exprs[:2]
         assert all(e.write in arrays for e in sqrt_exprs)
-        assert all(e.expr.rhs.is_Pow for e in sqrt_exprs)
+        assert all(e.expr.rhs.args[0].is_Pow for e in sqrt_exprs)
         assert all(e.write._mem_heap and not e.write._mem_external for e in sqrt_exprs)
 
         tmp_exprs = exprs[4:6]
@@ -1658,6 +1658,159 @@ class TestAliases(object):
         # all redundancies have been detected correctly
         assert summary[('section0', None)].ops == 93
 
+    @pytest.mark.parametrize('so_ops', [(4, 108)])
+    @switchconfig(profiling='advanced')
+    def test_tti_J_akin_bb0(self, so_ops):
+        grid = Grid(shape=(16, 16, 16))
+        t = grid.stepping_dim
+        x, y, z = grid.dimensions
+
+        space_order, exp_ops = so_ops
+
+        g = Function(name='g', grid=grid, space_order=space_order)
+        phi = Function(name='phi', grid=grid, space_order=space_order)
+        p0 = TimeFunction(name='p0', grid=grid, time_order=2, space_order=space_order)
+        m0 = TimeFunction(name='m0', grid=grid, time_order=2, space_order=space_order)
+
+        def g1(field):
+            return (field.dx(x0=x+x.spacing/2) +
+                    field.dy(x0=y+y.spacing/2) -
+                    field.dz(x0=z+z.spacing/2))
+
+        def g1_tilde(field, phi):
+            return ((cos(phi) * field).dx(x0=x-x.spacing/2) +
+                    (sin(phi) * field).dy(x0=y-y.spacing/2) -
+                    field.dz(x0=z-z.spacing/2))
+
+        update_p = g + \
+            (g1_tilde(g1(p0), phi) +
+             g1_tilde(g1(p0) + g1(m0), phi))
+
+        eqn = Eq(p0.forward, update_p)
+
+        op = Operator(eqn, subs=grid.spacing_map, openmp=True)
+
+        # Check code generation
+        assert op._profiler._sections['section1'].sops == exp_ops
+        arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
+        assert len(arrays) == 5
+        assert len(FindNodes(VExpanded).visit(op._func_table['bf0'])) == 3
+        xs, ys, zs = self.get_params(op, 'x0_blk0_size', 'y0_blk0_size', 'z_size')
+        # The three kind of derivatives taken -- in x, y, z -- all are over
+        # different expressions, so this leads to three temporaries of dimensionality,
+        # in particular 3D for the x-derivative, 2D for the y-derivative, and 1D
+        # for the z-derivative
+        self.check_array(arrays[2], ((2, 1), (0, 0), (0, 0)), (xs+3, ys, zs))
+        self.check_array(arrays[3], ((2, 1), (0, 0)), (ys+3, zs))
+        self.check_array(arrays[4], ((2, 1),), (zs+3,))
+
+    @pytest.mark.parametrize('so_ops', [(4, 74), (8, 144)])
+    @switchconfig(profiling='advanced')
+    def test_tti_J_akin_bb1(self, so_ops):
+        grid = Grid(shape=(16, 16, 16))
+        t = grid.stepping_dim
+        x, y, z = grid.dimensions
+
+        space_order, exp_ops = so_ops
+
+        vel = Function(name='vel', grid=grid, space_order=space_order)
+        a = Function(name='a', grid=grid, space_order=space_order)
+        phi = Function(name='phi', grid=grid, space_order=space_order)
+        p0 = TimeFunction(name='p0', grid=grid, time_order=2, space_order=space_order)
+        m0 = TimeFunction(name='m0', grid=grid, time_order=2, space_order=space_order)
+
+        def g1(field):
+            return field.dx + field.dy - field.dz
+
+        def g1_tilde(field, phi):
+            return (cos(phi) * field).dx + (sin(phi) * field).dy - field.dz
+
+        def g3_tilde(field, phi):
+            return (cos(phi) * field).dx + (sin(phi) * field).dy + field.dz
+
+        update_p = vel**2 * \
+            (g1_tilde(g1(p0), phi) +
+             g3_tilde(g1(p0) + sqrt(1 - vel**2) * g1(m0), phi)) + a
+
+        eqn = Eq(p0.forward, update_p)
+
+        op = Operator(eqn, subs=grid.spacing_map, openmp=True)
+
+        # Check code generation
+        assert op._profiler._sections['section1'].sops == exp_ops
+        arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
+        assert len(arrays) == 9
+        assert len(FindNodes(VExpanded).visit(op._func_table['bf0'])) == 6
+
+    @pytest.mark.parametrize('so_ops', [(4, 140), (8, 284)])
+    @switchconfig(profiling='advanced')
+    def test_tti_J_akin_complete(self, so_ops):
+        grid = Grid(shape=(16, 16, 16))
+        t = grid.stepping_dim
+        x, y, z = grid.dimensions
+
+        space_order, exp_ops = so_ops
+
+        a = Function(name='a', grid=grid, space_order=space_order)
+        f = Function(name='f', grid=grid, space_order=space_order)
+        g = Function(name='g', grid=grid, space_order=space_order)
+        theta = Function(name='theta', grid=grid, space_order=space_order)
+        phi = Function(name='phi', grid=grid, space_order=space_order)
+        p0 = TimeFunction(name='p0', grid=grid, time_order=2, space_order=space_order)
+        m0 = TimeFunction(name='m0', grid=grid, time_order=2, space_order=space_order)
+
+        def g1(field, phi, theta):
+            return (cos(theta) * cos(phi) * field.dx(x0=x+x.spacing/2) +
+                    cos(theta) * sin(phi) * field.dy(x0=y+y.spacing/2) -
+                    sin(theta) * field.dz(x0=z+z.spacing/2))
+
+        def g2(field, phi, theta):
+            return - (sin(phi) * field.dx(x0=x+x.spacing/2) -
+                      cos(phi) * field.dy(x0=y+y.spacing/2))
+
+        def g3(field, phi, theta):
+            return (sin(theta) * cos(phi) * field.dx(x0=x+x.spacing/2) +
+                    sin(theta) * sin(phi) * field.dy(x0=y+y.spacing/2) +
+                    cos(theta) * field.dz(x0=z+z.spacing/2))
+
+        def g1_tilde(field, phi, theta):
+            return ((cos(theta) * cos(phi) * field).dx(x0=x-x.spacing/2) +
+                    (cos(theta) * sin(phi) * field).dy(x0=y-y.spacing/2) -
+                    (sin(theta) * field).dz(x0=z-z.spacing/2))
+
+        def g2_tilde(field, phi, theta):
+            return - ((sin(phi) * field).dx(x0=x-x.spacing/2) -
+                      (cos(phi) * field).dy(x0=y-y.spacing/2))
+
+        def g3_tilde(field, phi, theta):
+            return ((sin(theta) * cos(phi) * field).dx(x0=x-x.spacing/2) +
+                    (sin(theta) * sin(phi) * field).dy(x0=y-y.spacing/2) +
+                    (cos(theta) * field).dz(x0=z-z.spacing/2))
+
+        update_p = t.spacing**2 * a**2 / f * \
+            (g1_tilde(f * g1(p0, phi, theta), phi, theta) +
+             g2_tilde(f * g2(p0, phi, theta), phi, theta) +
+             g3_tilde(f * g3(p0, phi, theta) + f * g3(m0, phi, theta), phi, theta)) + \
+            (2 - t.spacing * a)
+
+        update_m = t.spacing**2 * a**2 / f * \
+            (g1_tilde(f * g1(m0, phi, theta), phi, theta) +
+             g2_tilde(f * g2(m0, phi, theta), phi, theta) +
+             g3_tilde(f * g3(m0, phi, theta) + f * g3(p0, phi, theta), phi, theta)) + \
+            (2 - t.spacing * a)
+
+        eqns = [Eq(p0.forward, update_p),
+                Eq(m0.forward, update_m)]
+
+        op = Operator(eqns, subs=grid.spacing_map)
+        from IPython import embed; embed()
+
+        # Check code generation
+        assert op._profiler._sections['section1'].sops == exp_ops
+        arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
+        assert len(arrays) == 9
+        assert len(FindNodes(VExpanded).visit(op._func_table['bf0'])) == 6
+
     @pytest.mark.parametrize('so_ops', [(4, 33), (8, 69)])
     @pytest.mark.parametrize('rotate', [False, True])
     @switchconfig(profiling='advanced')
@@ -1836,7 +1989,7 @@ class TestAliases(object):
         ('(v.dx + v.dy).dx - (v.dx + v.dy).dy + 2*f.dx.dx + f*f.dy.dy + f.dx.dx(x0=1)',
          (3, 3, (0, 3)), (217, 201, 74)),
         ('(g*(1 + f)*v.dx).dx + (2*g*f*v.dx).dx',
-         (1, 1, (0, 1)), (50, 62, 18)),
+         (1, 2, (0, 1)), (50, 65, 18)),
         ('g*(f.dx.dx + g.dx.dx)',
          (1, 2, (0, 1)), (47, 62, 17)),
     ])
