@@ -1479,10 +1479,6 @@ class TestAliases(object):
         eq = Eq(u.forward, solve(pde, u.forward))
 
         op = Operator(eq)
-        assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 1
-        assert op._profiler._sections['section0'].sops == 59
-
-        op = Operator(eq, opt=('advanced', {'cire-schedule': 0}))
         assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 2
         assert op._profiler._sections['section0'].sops == 39
 
@@ -1740,7 +1736,6 @@ class TestAliases(object):
 
         p = TimeFunction(name='p', grid=grid, space_order=so, time_order=to)
         p1 = TimeFunction(name='p', grid=grid, space_order=so, time_order=to)
-        p2 = TimeFunction(name='p', grid=grid, space_order=so, time_order=to)
         r = TimeFunction(name='r', grid=grid, space_order=so, time_order=to)
         delta = Function(name='delta', grid=grid, space_order=so)
         theta = Function(name='theta', grid=grid, space_order=so)
@@ -1748,7 +1743,6 @@ class TestAliases(object):
 
         p.data_with_halo[:] = 1.1
         p1.data_with_halo[:] = 1.1
-        p2.data_with_halo[:] = 1.1
         r.data_with_halo[:] = 0.5
         delta.data_with_halo[:] = 0.2
         theta.data_with_halo[:] = 0.8
@@ -1761,12 +1755,8 @@ class TestAliases(object):
 
         eqn = Eq(p.backward, H0)
 
-        op0 = Operator(eqn, subs=grid.spacing_map,
-                       opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, subs=grid.spacing_map,
-                       opt=('advanced', {'openmp': True, 'cire-schedule': 0}))
-        op2 = Operator(eqn, subs=grid.spacing_map,
-                       opt=('advanced', {'openmp': True}))
+        op0 = Operator(eqn, subs=grid.spacing_map, opt=('noop', {'openmp': True}))
+        op1 = Operator(eqn, subs=grid.spacing_map, opt=('advanced', {'openmp': True}))
 
         # Check code generation
         xs, ys, zs = self.get_params(op1, 'x0_blk0_size', 'y0_blk0_size', 'z_size')
@@ -1781,13 +1771,10 @@ class TestAliases(object):
         summary1 = op1(time_M=1, p=p1)
         exp_p = norm(p)
         assert np.isclose(exp_p, norm(p1), atol=1e-15)
-        summary2 = op2(time_M=1, p=p2)
-        assert np.isclose(exp_p, norm(p2), atol=1e-15)
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
         assert summary1[('section1', None)].ops == 75
-        assert summary2[('section1', None)].ops == 108
 
     @pytest.mark.parametrize('rotate', [False, True])
     @switchconfig(profiling='advanced')

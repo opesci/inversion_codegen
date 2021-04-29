@@ -371,8 +371,8 @@ class CireSops(CireTransformer):
         # comes at the price of using more temporaries, then we have to apply
         # heuristics, in particular we estimate how many flops would a temporary
         # allow to save
-        return ((delta_flops >= 0 and delta_ws > 0 and delta_flops / delta_ws < 50) or
-                (delta_flops <= 0 and delta_ws < 0 and delta_flops / delta_ws > 50) or
+        return ((delta_flops >= 0 and delta_ws > 0 and delta_flops / delta_ws < 15) or
+                (delta_flops <= 0 and delta_ws < 0 and delta_flops / delta_ws > 15) or
                 (delta_flops <= 0 and delta_ws >= 0))
 
 
