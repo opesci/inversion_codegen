@@ -185,7 +185,7 @@ def _(expr):
 
     derivs, others = split(args, lambda a: isinstance(a, sympy.Derivative))
     if not derivs:
-        return expr
+        return rebuild_if_untouched(expr, args)
 
     # Map by type of derivative
     # Note: `D0(a) + D1(b) == D(a + b)` <=> `D0` and `D1`'s metadata match,

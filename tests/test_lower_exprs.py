@@ -148,6 +148,21 @@ class TestCollectDerivatives(object):
         assert eq != leq
         assert leq.rhs == 0.3*hx + (hx*(0.4 + dt*(hy + 1. + hx*hy))*u + v).dx
 
+    def test_pull_and_collect_nested_v3(self):
+        grid = Grid(shape=(10, 10))
+        dt = grid.time_dim.spacing
+        hx, hy = grid.spacing_symbols
+
+        a = Function(name="a", grid=grid, space_order=2)
+        u = TimeFunction(name="u", grid=grid, space_order=2)
+        v = TimeFunction(name="v", grid=grid, space_order=2)
+
+        eq = Eq(u.forward, 0.4 + a*(hx + dt*(u.dx + v.dx)))
+        leq = collect_derivatives.func([eq])[0]
+
+        assert eq != leq
+        assert leq.rhs == 0.4 + a*(hx + (dt*u + dt*v).dx)
+
     def test_nocollection_subdims(self):
         grid = Grid(shape=(10, 10))
         xi, yi = grid.interior.dimensions
