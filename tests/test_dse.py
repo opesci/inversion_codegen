@@ -81,21 +81,21 @@ def test_scheduling_after_rewrite():
     # Fancy use case with lots of temporaries
     (['Eq(tu.forward, tu.dx + 1)', 'Eq(tv.forward, tv.dx + 1)',
       'Eq(tw.forward, tv.dt.dx2.dy2 + 1)', 'Eq(tz.forward, tv.dt.dy2.dx2 + 2)'],
-     ['h_x**(-2)', 'h_y**(-2)', '1/h_x', '1/dt', '-r9*tv[t, x, y, z]',
-      '-r9*tv[t, x + 1, y, z] + r9*tv[t + 1, x + 1, y, z]',
-      '-r9*tv[t, x - 1, y, z] + r9*tv[t + 1, x - 1, y, z]',
-      '-r9*tv[t, x, y + 1, z] + r9*tv[t + 1, x, y + 1, z]',
-      '-r9*tv[t, x + 1, y + 1, z] + r9*tv[t + 1, x + 1, y + 1, z]',
-      '-r9*tv[t, x - 1, y + 1, z] + r9*tv[t + 1, x - 1, y + 1, z]',
-      '-r9*tv[t, x, y - 1, z] + r9*tv[t + 1, x, y - 1, z]',
-      '-r9*tv[t, x + 1, y - 1, z] + r9*tv[t + 1, x + 1, y - 1, z]',
-      '-r9*tv[t, x - 1, y - 1, z] + r9*tv[t + 1, x - 1, y - 1, z]',
-      '-r10*tu[t, x, y, z] + r10*tu[t, x + 1, y, z] + 1',
-      '-r10*tv[t, x, y, z] + r10*tv[t, x + 1, y, z] + 1',
-      'r11*(r0*r12 + r1*r12 - 2.0*r12*r2) + r11*(r12*r3 + r12*r4 - 2.0*r12*r5) - '
-      '2.0*r11*(r12*r6 + r12*r7 - 2.0*r12*(r8 + r9*tv[t + 1, x, y, z])) + 1',
-      'r12*(r0*r11 + r11*r3 - 2.0*r11*r6) + r12*(r1*r11 + r11*r4 - 2.0*r11*r7) - '
-      '2.0*r12*(r11*r2 + r11*r5 - 2.0*r11*(r8 + r9*tv[t + 1, x, y, z])) + 2']),
+     ['1/h_x', 'h_x**(-2)', 'h_y**(-2)', '1/dt', '-r11*tv[t, x, y, z]', '-2.0*r12',
+      '-2.0*r13', '-r11*tv[t, x + 1, y + 1, z] + r11*tv[t + 1, x + 1, y + 1, z]',
+      '-r11*tv[t, x, y + 1, z] + r11*tv[t + 1, x, y + 1, z]',
+      '-r11*tv[t, x - 1, y + 1, z] + r11*tv[t + 1, x - 1, y + 1, z]',
+      '-r11*tv[t, x + 1, y, z] + r11*tv[t + 1, x + 1, y, z]',
+      '-r11*tv[t, x - 1, y, z] + r11*tv[t + 1, x - 1, y, z]',
+      '-r11*tv[t, x + 1, y - 1, z] + r11*tv[t + 1, x + 1, y - 1, z]',
+      '-r11*tv[t, x, y - 1, z] + r11*tv[t + 1, x, y - 1, z]',
+      '-r11*tv[t, x - 1, y - 1, z] + r11*tv[t + 1, x - 1, y - 1, z]',
+      '-r14*tu[t, x, y, z] + r14*tu[t, x + 1, y, z] + 1',
+      '-r14*tv[t, x, y, z] + r14*tv[t, x + 1, y, z] + 1',
+      'r12*(r0*r13 + r1*r8 + r13*r2) + r12*(r13*r5 + r13*r7 + r6*r8) + '
+      'r9*(r13*r3 + r13*r4 + r8*(r10 + r11*tv[t + 1, x, y, z])) + 1',
+      'r13*(r0*r12 + r12*r5 + r3*r9) + r13*(r12*r2 + r12*r7 + r4*r9) + '
+      'r8*(r1*r12 + r12*r6 + r9*(r10 + r11*tv[t + 1, x, y, z])) + 2']),
 ])
 def test_cse(exprs, expected):
     """Test common subexpressions elimination."""
