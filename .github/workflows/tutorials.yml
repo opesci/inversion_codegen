@@ -4,8 +4,6 @@ on:
   # Trigger the workflow on push or pull request,
   # but only for the master branch
   push:
-    branches:
-      - master
   pull_request:
     branches:
       - master
@@ -117,7 +115,7 @@ jobs:
     - name: Compiler notebooks
       run: |
         ${{ steps.set-run.outputs.RUN_CMD }} py.test --nbval --cov . --cov-config=.coveragerc --cov-report=xml:comp_coverage.xml examples/compiler
-        
+
     - name: Finance notebooks
       run: |
         ${{ steps.set-run.outputs.RUN_CMD }} py.test --nbval --cov . --cov-config=.coveragerc --cov-report=xml:comp_coverage.xml examples/finance
