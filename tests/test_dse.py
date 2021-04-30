@@ -1704,7 +1704,7 @@ class TestAliases(object):
         self.check_array(arrays[3], ((2, 1), (0, 0)), (ys+3, zs))
         self.check_array(arrays[4], ((2, 1),), (zs+3,))
 
-    @pytest.mark.parametrize('so_ops', [(4, 74), (8, 144)])
+    @pytest.mark.parametrize('so_ops', [(4, 51), (8, 95)])
     @switchconfig(profiling='advanced')
     def test_tti_J_akin_bb1(self, so_ops):
         grid = Grid(shape=(16, 16, 16))
@@ -1739,8 +1739,8 @@ class TestAliases(object):
         # Check code generation
         assert op._profiler._sections['section1'].sops == exp_ops
         arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
-        assert len(arrays) == 9
-        assert len(FindNodes(VExpanded).visit(op._func_table['bf0'])) == 6
+        assert len(arrays) == 6
+        assert len(FindNodes(VExpanded).visit(op._func_table['bf0'])) == 3
 
     @pytest.mark.parametrize('so_ops', [(4, 48)])
     @switchconfig(profiling='advanced')
