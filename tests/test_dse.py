@@ -1742,7 +1742,52 @@ class TestAliases(object):
         assert len(arrays) == 9
         assert len(FindNodes(VExpanded).visit(op._func_table['bf0'])) == 6
 
-    @pytest.mark.parametrize('so_ops', [(4, 140), (8, 284)])
+    @pytest.mark.parametrize('so_ops', [(4, 48)])
+    @switchconfig(profiling='advanced')
+    def test_tti_J_akin_bb2(self, so_ops):
+        grid = Grid(shape=(16, 16, 16))
+        t = grid.stepping_dim
+        x, y, z = grid.dimensions
+
+        space_order, exp_ops = so_ops
+
+        f = Function(name='f', grid=grid, space_order=space_order)
+        theta = Function(name='theta', grid=grid, space_order=space_order)
+        phi = Function(name='phi', grid=grid, space_order=space_order)
+        p0 = TimeFunction(name='p0', grid=grid, time_order=2, space_order=space_order)
+
+        def g1(field, phi, theta):
+            return (cos(theta) * cos(phi) * field.dx(x0=x+x.spacing/2) +
+                    cos(theta) * sin(phi) * field.dy(x0=y+y.spacing/2) -
+                    sin(theta) * field.dz(x0=z+z.spacing/2))
+
+        def g2(field, phi, theta):
+            return - (sin(phi) * field.dx(x0=x+x.spacing/2) -
+                      cos(phi) * field.dy(x0=y+y.spacing/2))
+
+        def g1_tilde(field, phi, theta):
+            return ((cos(theta) * cos(phi) * field).dx(x0=x-x.spacing/2) +
+                    (cos(theta) * sin(phi) * field).dy(x0=y-y.spacing/2) -
+                    (sin(theta) * field).dz(x0=z-z.spacing/2))
+
+        def g2_tilde(field, phi, theta):
+            return - ((sin(phi) * field).dx(x0=x-x.spacing/2) -
+                      (cos(phi) * field).dy(x0=y-y.spacing/2))
+
+        update_p = exp_ops + f * (g1_tilde(g1(p0, phi, theta), phi, theta) +
+                                  g2_tilde(g2(p0, phi, theta), phi, theta))
+
+        eqn = Eq(p0.forward, update_p)
+
+        op = Operator(eqn, subs=grid.spacing_map, openmp=True)
+
+        # Check code generation
+        assert op._profiler._sections['section1'].sops == exp_ops
+        arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
+        assert len(arrays) == 7
+        assert len(FindNodes(VExpanded).visit(op._func_table['bf0'])) == 3
+
+    @pytest.mark.parametrize('so_ops', [(4, 144), (8, 208)])
     @switchconfig(profiling='advanced')
     def test_tti_J_akin_complete(self, so_ops):
         grid = Grid(shape=(16, 16, 16))
@@ -1802,13 +1847,12 @@ class TestAliases(object):
         eqns = [Eq(p0.forward, update_p),
                 Eq(m0.forward, update_m)]
 
-        op = Operator(eqns, subs=grid.spacing_map)
-        from IPython import embed; embed()
+        op = Operator(eqns, subs=grid.spacing_map, openmp=True)
 
         # Check code generation
         assert op._profiler._sections['section1'].sops == exp_ops
         arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
-        assert len(arrays) == 9
+        assert len(arrays) == 10
         assert len(FindNodes(VExpanded).visit(op._func_table['bf0'])) == 6
 
     @pytest.mark.parametrize('so_ops', [(4, 33), (8, 69)])
