@@ -1,7 +1,5 @@
 from functools import partial
 
-import numpy as np
-
 from devito.core.operator import CoreOperator, CustomOperator
 from devito.exceptions import InvalidOperator
 from devito.passes.equations import buffering, collect_derivatives

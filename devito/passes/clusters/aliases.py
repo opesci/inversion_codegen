@@ -1,5 +1,5 @@
 from collections import Counter, OrderedDict, defaultdict, namedtuple
-from functools import partial, singledispatch
+from functools import singledispatch
 from itertools import groupby
 
 from cached_property import cached_property
@@ -13,9 +13,9 @@ from devito.ir import (SEQUENTIAL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
                        detect_accesses, build_intervals, normalize_properties,
                        relax_properties)
 from devito.passes.clusters.utils import timed_pass
-from devito.symbolics import (Uxmapper, compare_ops, count, estimate_cost, q_constant,
-                              q_leaf, rebuild_if_untouched, retrieve_indexed,
-                              retrieve_symbols, search, uxreplace)
+from devito.symbolics import (Uxmapper, compare_ops, estimate_cost, q_constant,
+                              rebuild_if_untouched, retrieve_indexed,
+                              search, uxreplace)
 from devito.tools import as_mapper, as_tuple, flatten, frozendict, generator, split
 from devito.types import (Array, TempFunction, Eq, Symbol, ModuloDimension,
                           CustomDimension, IncrDimension, Indexed)
@@ -787,7 +787,7 @@ def optimize_schedule_padding(schedule, meta, platform):
     for i in schedule:
         try:
             it = i.ispace.itintervals[-1]
-            if it.dim is i.writeto[-1].dim and  ROUNDABLE in meta.properties[it.dim]:
+            if it.dim is i.writeto[-1].dim and ROUNDABLE in meta.properties[it.dim]:
                 vl = platform.simd_items_per_reg(meta.dtype)
                 ispace = i.ispace.add(Interval(it.dim, 0, it.interval.size % vl))
             else:

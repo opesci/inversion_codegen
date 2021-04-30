@@ -1035,8 +1035,6 @@ class TestAliases(object):
         v = TimeFunction(name='v', grid=grid, space_order=space_order)
         u1 = TimeFunction(name='u', grid=grid, space_order=space_order)
         v1 = TimeFunction(name='v', grid=grid, space_order=space_order)
-        u2 = TimeFunction(name='u', grid=grid, space_order=space_order)
-        v2 = TimeFunction(name='v', grid=grid, space_order=space_order)
         f = Function(name='f', grid=grid, space_order=space_order)
         e = Function(name='e', grid=grid, space_order=space_order)
         p0 = Function(name='p0', grid=grid, space_order=space_order)
@@ -1662,7 +1660,6 @@ class TestAliases(object):
     @switchconfig(profiling='advanced')
     def test_tti_J_akin_bb0(self, so_ops):
         grid = Grid(shape=(16, 16, 16))
-        t = grid.stepping_dim
         x, y, z = grid.dimensions
 
         space_order, exp_ops = so_ops
@@ -1708,7 +1705,6 @@ class TestAliases(object):
     @switchconfig(profiling='advanced')
     def test_tti_J_akin_bb1(self, so_ops):
         grid = Grid(shape=(16, 16, 16))
-        t = grid.stepping_dim
         x, y, z = grid.dimensions
 
         space_order, exp_ops = so_ops
@@ -1746,7 +1742,6 @@ class TestAliases(object):
     @switchconfig(profiling='advanced')
     def test_tti_J_akin_bb2(self, so_ops):
         grid = Grid(shape=(16, 16, 16))
-        t = grid.stepping_dim
         x, y, z = grid.dimensions
 
         space_order, exp_ops = so_ops
@@ -1798,7 +1793,6 @@ class TestAliases(object):
 
         a = Function(name='a', grid=grid, space_order=space_order)
         f = Function(name='f', grid=grid, space_order=space_order)
-        g = Function(name='g', grid=grid, space_order=space_order)
         theta = Function(name='theta', grid=grid, space_order=space_order)
         phi = Function(name='phi', grid=grid, space_order=space_order)
         p0 = TimeFunction(name='p0', grid=grid, time_order=2, space_order=space_order)
@@ -2014,7 +2008,6 @@ class TestAliases(object):
         grid = Grid(shape=(3, 3))
 
         u = TimeFunction(name="u", grid=grid, time_order=2, space_order=4)
-        m = Function(name='m', grid=grid, space_order=4)
 
         eq = Eq(u.forward, u.dx.dy + u*(u.dx.dy + 1.))
 
