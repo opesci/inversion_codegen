@@ -2,6 +2,7 @@ from collections import ChainMap
 from functools import singledispatch
 
 import sympy
+from sympy.core.add import _addsort
 from sympy.core.decorators import call_highest_priority
 from sympy.core.evalf import evalf_table
 
@@ -460,6 +461,9 @@ class EvalDerivative(DifferentiableOp, sympy.Add):
 
         # a+0 -> a
         args = [i for i in args if i != 0]
+
+        # Reorder for homogeneity with pure SymPy types
+        _addsort(args)
 
         obj = super().__new__(cls, *args, **kwargs)
 
