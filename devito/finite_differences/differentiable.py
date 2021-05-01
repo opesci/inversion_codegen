@@ -2,6 +2,8 @@ from collections import ChainMap
 from functools import singledispatch
 
 import sympy
+from sympy.core.add import _addsort
+from sympy.core.mul import _mulsort
 from sympy.core.decorators import call_highest_priority
 from sympy.core.evalf import evalf_table
 
@@ -381,6 +383,9 @@ class Add(DifferentiableOp, sympy.Add):
         # a+0 -> a
         args = [i for i in args if i != 0]
 
+        # Reorder for homogeneity with pure SymPy types
+        _addsort(args)
+
         return super().__new__(cls, *args, **kwargs)
 
 
@@ -398,6 +403,9 @@ class Mul(DifferentiableOp, sympy.Mul):
 
         # a*1 -> a
         args = [i for i in args if i != 1]
+
+        # Reorder for homogeneity with pure SymPy types
+        _mulsort(args)
 
         return super().__new__(cls, *args, **kwargs)
 
@@ -450,9 +458,6 @@ class Mod(DifferentiableOp, sympy.Mod):
 
 class EvalDerivative(DifferentiableOp, sympy.Add):
 
-    #TODO: NECESSARY??
-    _op_priority = Differentiable._op_priority + 1.
-
     is_commutative = True
 
     def __new__(cls, *args, base=None, **kwargs):
@@ -460,6 +465,9 @@ class EvalDerivative(DifferentiableOp, sympy.Add):
 
         # a+0 -> a
         args = [i for i in args if i != 0]
+
+        # Reorder for homogeneity with pure SymPy types
+        _addsort(args)
 
         obj = super().__new__(cls, *args, **kwargs)
 
