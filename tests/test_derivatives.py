@@ -5,7 +5,7 @@ from sympy import simplify, diff, Float
 from devito import (Grid, Function, TimeFunction, Eq, Operator, NODE, cos, sin,
                     ConditionalDimension, left, right, centered, div, grad)
 from devito.finite_differences import Derivative, Differentiable
-from devito.finite_differences.differentiable import EvalDerivative
+from devito.finite_differences.differentiable import Add, EvalDerivative
 from devito.symbolics import indexify, retrieve_indexed
 
 _PRECISION = 9
@@ -329,7 +329,7 @@ class TestFD(object):
         assert u.dxl(side=centered).evaluate == u.dx.evaluate
 
     @pytest.mark.parametrize('so, expected', [
-        (2, '1.0*u(x)/h_x - 1.0*u(x - 1.0*h_x)/h_x'),
+        (2, 'u(x)/h_x - 1.0*u(x - 1.0*h_x)/h_x'),
         (4, '1.125*u(x)/h_x + 0.0416666667*u(x - 2.0*h_x)/h_x - '
             '1.125*u(x - 1.0*h_x)/h_x - 0.0416666667*u(x + 1.0*h_x)/h_x'),
         (6, '1.171875*u(x)/h_x - 0.0046875*u(x - 3.0*h_x)/h_x + '
@@ -363,8 +363,8 @@ class TestFD(object):
         x = grid.dimensions[0]
         u = Function(name="u", grid=grid, space_order=2)
 
-        dplus = "-1.0*u(x)/h_x + 1.0*u(x + 1.0*h_x)/h_x"
-        dminus = "1.0*u(x)/h_x - 1.0*u(x - 1.0*h_x)/h_x"
+        dplus = "-1.0*u(x)/h_x + u(x + 1.0*h_x)/h_x"
+        dminus = "u(x)/h_x - 1.0*u(x - 1.0*h_x)/h_x"
         assert str(u.dx(x0=x + .5 * x.spacing).evaluate) == dplus
         assert str(u.dx(x0=x - .5 * x.spacing).evaluate) == dminus
         assert str(u.dx(x0=x + .5 * x.spacing, fd_order=1).evaluate) == dplus
@@ -450,7 +450,7 @@ class TestFD(object):
         deriv = getattr(f, derivative)
         coeff = 1 if derivative == 'dx2' else -1
         expected = coeff * getattr(f, derivative).evaluate.subs({x.spacing: -x.spacing})
-        assert simplify(deriv.T.evaluate) == simplify(expected)
+        assert simplify(deriv.T.evaluate) == simplify(bypass_uneval(expected))
 
         # Compute numerical derivatives and verify dot test
         #  i.e <f.dx, g> = <f, g.dx.T>
@@ -488,3 +488,9 @@ class TestFD(object):
             x0 = (None if shift is None else d + shift[i] * d.spacing if
                   type(shift) is tuple else d + shift * d.spacing)
             assert gi == getattr(f, 'd%s' % d.name)(x0=x0).evaluate
+
+
+def bypass_uneval(expr):
+    unevals = expr.find(EvalDerivative)
+    mapper = {i: Add(*i.args) for i in unevals}
+    return expr.xreplace(mapper)
