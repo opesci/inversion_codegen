@@ -313,10 +313,9 @@ class TestSC(object):
         weights = np.array([1, -2, 1])/grid.spacing[0]**2
         coeffs_f = Coefficient(2, f, x, weights)
 
-        eq_f = Eq(f, 1.0*f.dx2, coefficients=Substitutions(coeffs_f))
+        eq_f = Eq(f, f.dx2, coefficients=Substitutions(coeffs_f))
 
-        expected = 'Eq(f(x + h_x/2), 1.0*f(x - h_x/2) - 2.0*f(x + h_x/2)' \
-            + ' + 1.0*f(x + 3*h_x/2))'
+        expected = 'Eq(f(x + h_x/2), f(x - h_x/2) - 2.0*f(x + h_x/2) + f(x + 3*h_x/2))'
         assert(str(eq_f.evaluate) == expected)
 
     @pytest.mark.parametrize('stagger', [True, False])
