@@ -148,8 +148,8 @@ class Substitutions(object):
     check that by
 
     >>> eq.evaluate
-    Eq(0.1*u(t, x, y) - 0.6*u(t, x - h_x, y) + 0.6*u(t, x + h_x, y) \
-- u(t, x, y)/dt + u(t + dt, x, y)/dt, 0)
+    Eq(-u(t, x, y)/dt + u(t + dt, x, y)/dt + 0.1*u(t, x, y) - \
+0.6*u(t, x - h_x, y) + 0.6*u(t, x + h_x, y), 0)
 
     Notes
     -----
