@@ -9,6 +9,7 @@ from sympy import Symbol  # noqa
 from devito import (Grid, TimeDimension, SteppingDimension, SpaceDimension, # noqa
                     Constant, Function, TimeFunction, Eq, configuration, SparseFunction, # noqa
                     SparseTimeFunction, cos)  # noqa
+from devito.finite_differences.differentiable import EvalDerivative
 from devito.arch import Device, sniff_mpi_distro
 from devito.tools import as_tuple
 
@@ -176,3 +177,23 @@ def pytest_runtest_call(item):
 opts_tiling = ['advanced',
                ('advanced', {'skewing': True}),
                ('advanced', {'skewing': True, 'blockinner': True})]
+
+
+# Utilities for retrocompatibility
+
+
+def _R(expr):
+    """
+    Originally Devito searched for sum-of-products in the Eq's, while now
+    it searches for Derivatives (or, to be more precise, EvalDerivative).
+    However, far too many tests were written with artificial sum-of-products
+    as input (rather than actual FD derivative expressions), so here we "fake"
+    such expressions as derivatives.
+    """
+    if any(a.has(EvalDerivative) for a in expr.args):
+        base = expr
+    else:
+        base = {i.function for i in expr.free_symbols if i.function.is_TimeFunction}
+        assert len(base) == 1
+        base = base.pop()
+    return EvalDerivative(*expr.args, base=base)
