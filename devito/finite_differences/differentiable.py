@@ -384,6 +384,7 @@ class Add(DifferentiableOp, sympy.Add):
         args = [i for i in args if i != 0]
 
         # Reorder for homogeneity with pure SymPy types
+        #TODO: DROP if kwargs...??
         if kwargs.get('evaluate', True):
             _addsort(args)
 
@@ -406,6 +407,7 @@ class Mul(DifferentiableOp, sympy.Mul):
         args = [i for i in args if i != 1]
 
         # Reorder for homogeneity with pure SymPy types
+        #TODO: DROP if kwargs...??
         if kwargs.get('evaluate', True):
             _mulsort(args)
 
