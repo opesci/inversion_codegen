@@ -188,8 +188,8 @@ def cross_derivative(expr, dims, fd_order, deriv_order, **kwargs):
     >>> f = Function(name='f', grid=grid, space_order=2)
     >>> g = Function(name='g', grid=grid, space_order=2)
     >>> cross_derivative(f*g, dims=(x, y), fd_order=(2, 2), deriv_order=(1, 1))
-    -(-f(x, y)*g(x, y)/h_x + f(x + h_x, y)*g(x + h_x, y)/h_x)/h_y +\
- (-f(x, y + h_y)*g(x, y + h_y)/h_x + f(x + h_x, y + h_y)*g(x + h_x, y + h_y)/h_x)/h_y
+    (-1/h_y)*(-f(x, y)*g(x, y)/h_x + f(x + h_x, y)*g(x + h_x, y)/h_x) + \
+(-f(x, y + h_y)*g(x, y + h_y)/h_x + f(x + h_x, y + h_y)*g(x + h_x, y + h_y)/h_x)/h_y
 
     Semantically, this is equivalent to
 
@@ -200,15 +200,15 @@ def cross_derivative(expr, dims, fd_order, deriv_order, **kwargs):
     The expanded form is obtained via ``evaluate``
 
     >>> (f*g).dxdy.evaluate
-    -(-f(x, y)*g(x, y)/h_x + f(x + h_x, y)*g(x + h_x, y)/h_x)/h_y +\
- (-f(x, y + h_y)*g(x, y + h_y)/h_x + f(x + h_x, y + h_y)*g(x + h_x, y + h_y)/h_x)/h_y
+    (-1/h_y)*(-f(x, y)*g(x, y)/h_x + f(x + h_x, y)*g(x + h_x, y)/h_x) + \
+(-f(x, y + h_y)*g(x, y + h_y)/h_x + f(x + h_x, y + h_y)*g(x + h_x, y + h_y)/h_x)/h_y
 
     Finally the x0 argument allows to choose the origin of the finite-difference
 
     >>> cross_derivative(f*g, dims=(x, y), fd_order=(2, 2), deriv_order=(1, 1), \
     x0={x: 1, y: 2})
-    -(-f(1, 2)*g(1, 2)/h_x + f(h_x + 1, 2)*g(h_x + 1, 2)/h_x)/h_y +\
- (-f(1, h_y + 2)*g(1, h_y + 2)/h_x + f(h_x + 1, h_y + 2)*g(h_x + 1, h_y + 2)/h_x)/h_y
+    (-1/h_y)*(-f(1, 2)*g(1, 2)/h_x + f(h_x + 1, 2)*g(h_x + 1, 2)/h_x) + (-f(1, h_y + 2)*\
+g(1, h_y + 2)/h_x + f(h_x + 1, h_y + 2)*g(h_x + 1, h_y + 2)/h_x)/h_y
     """
     x0 = kwargs.get('x0', {})
     for d, fd, dim in zip(deriv_order, fd_order, dims):
