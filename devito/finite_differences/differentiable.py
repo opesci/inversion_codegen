@@ -383,6 +383,10 @@ class Add(DifferentiableOp, sympy.Add):
         # a+0 -> a
         args = [i for i in args if i != 0]
 
+        # Reorder for homogeneity with pure SymPy types
+        if kwargs.get('evaluate', True):
+            _addsort(args)
+
         return super().__new__(cls, *args, **kwargs)
 
 
