@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from cached_property import cached_property
 
-from conftest import skipif
+from conftest import skipif, _R
 from devito import (Grid, Constant, Function, TimeFunction, SparseFunction,
                     SparseTimeFunction, Dimension, ConditionalDimension, SubDimension,
                     SubDomain, Eq, Ne, Inc, NODE, Operator, norm, inner, configuration,
@@ -1820,10 +1820,12 @@ class TestOperatorAdvanced(object):
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u.data_with_halo[:] = 0.
 
-        eqn = Eq(u.forward, ((u[t, x, y] + u[t, x+1, y+1])*3.*f +
-                             (u[t, x+2, y+2] + u[t, x+3, y+3])*3.*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y] + u[t, x+1, y+1])*3.*f +
+                               _R(u[t, x+2, y+2] + u[t, x+3, y+3])*3.*f) + 1.)
         op0 = Operator(eqn, opt='noop')
-        op1 = Operator(eqn, opt=('advanced', {'cire-mingain': 1}))
+        op1 = Operator(eqn, opt=('advanced', {'cire-mingain': 0}))
+
+        assert len([i for i in FindSymbols().visit(op1) if i.is_Array]) == 1
 
         op0(time_M=1)
         u0_norm = norm(u)
@@ -1851,10 +1853,12 @@ class TestOperatorAdvanced(object):
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u.data_with_halo[:] = 0.
 
-        eqn = Eq(u.forward, ((u[t, x, y] + u[t, x+2, y])*3.*f +
-                             (u[t, x+1, y+1] + u[t, x+3, y+1])*3.*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y] + u[t, x+2, y])*3.*f +
+                               _R(u[t, x+1, y+1] + u[t, x+3, y+1])*3.*f) + 1.)
         op0 = Operator(eqn, opt='noop')
-        op1 = Operator(eqn, opt=('advanced', {'cire-mingain': 1}))
+        op1 = Operator(eqn, opt=('advanced', {'cire-mingain': 0}))
+
+        assert len([i for i in FindSymbols().visit(op1) if i.is_Array]) == 1
 
         op0(time_M=1)
         u0_norm = norm(u)
