@@ -3,6 +3,7 @@ from functools import singledispatch
 
 import sympy
 from sympy.core.add import _addsort
+from sympy.core.mul import _mulsort
 from sympy.core.decorators import call_highest_priority
 from sympy.core.evalf import evalf_table
 
@@ -399,6 +400,10 @@ class Mul(DifferentiableOp, sympy.Mul):
 
         # a*1 -> a
         args = [i for i in args if i != 1]
+
+        # Reorder for homogeneity with pure SymPy types
+        if kwargs.get('evaluate', True):
+            _mulsort(args)
 
         return super().__new__(cls, *args, **kwargs)
 
