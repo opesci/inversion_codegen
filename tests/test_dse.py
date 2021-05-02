@@ -1,15 +1,15 @@
-from sympy import Add  # noqa
+from sympy import Add
 import numpy as np
 import pytest
 from cached_property import cached_property
 
-from conftest import skipif, EVAL  # noqa
+from conftest import skipif, EVAL, _R  # noqa
 from devito import (NODE, Eq, Inc, Constant, Function, TimeFunction, SparseTimeFunction,  # noqa
                     Dimension, SubDimension, ConditionalDimension, DefaultDimension, Grid,
                     Operator, norm, grad, div, dimensions, switchconfig, configuration,
                     centered, first_derivative, solve, transpose, cos, sin, sqrt)
 from devito.exceptions import InvalidArgument, InvalidOperator
-from devito.finite_differences.differentiable import EvalDerivative, diffify
+from devito.finite_differences.differentiable import diffify
 from devito.ir import (Conditional, DummyEq, Expression, Iteration, FindNodes,
                        FindSymbols, ParallelIteration, retrieve_iteration_tree)
 from devito.passes.clusters.aliases import collect
@@ -2571,23 +2571,3 @@ class TestTTIv2(object):
         assert len(sections) == 2
         assert sections[0].sops == 4
         assert sections[1].sops == expected
-
-
-# Utilities for retrocompatibility
-
-
-def _R(expr):
-    """
-    Originally Devito searched for sum-of-products in the Eq's, while now
-    it searches for Derivatives (or, to be more precise, EvalDerivative).
-    However, far too many tests were written with artificial sum-of-products
-    as input (rather than actual FD derivative expressions), so here we "fake"
-    such expressions as derivatives.
-    """
-    if any(a.has(EvalDerivative) for a in expr.args):
-        base = expr
-    else:
-        base = {i.function for i in expr.free_symbols if i.function.is_TimeFunction}
-        assert len(base) == 1
-        base = base.pop()
-    return EvalDerivative(*expr.args, base=base)

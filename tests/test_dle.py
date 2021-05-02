@@ -4,6 +4,7 @@ from operator import mul
 import numpy as np
 import pytest
 
+from conftest import _R
 from devito import (Grid, Function, TimeFunction, SparseTimeFunction, SpaceDimension,
                     Dimension, SubDimension, Eq, Inc, Operator, info)
 from devito.exceptions import InvalidArgument
@@ -680,10 +681,10 @@ class TestNestedParallelism(object):
         f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
 
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3.*f +
-                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z+1])*3.*f +
+                               _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f) + 1.)
         op = Operator(eqn, opt=('advanced', {'openmp': True,
-                                             'cire-mingain': 1,
+                                             'cire-mingain': 0,
                                              'par-nested': 0,
                                              'par-collapse-ncores': 1,
                                              'par-dynamic-work': 0}))
@@ -713,10 +714,10 @@ class TestNestedParallelism(object):
         f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
 
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3.*f +
-                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z+1])*3.*f +
+                               _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.*f) + 1.)
         op = Operator(eqn, opt=('advanced', {'openmp': True,
-                                             'cire-mingain': 1,
+                                             'cire-mingain': 0,
                                              'cire-rotate': True,
                                              'par-nested': 0,
                                              'par-collapse-ncores': 1,
