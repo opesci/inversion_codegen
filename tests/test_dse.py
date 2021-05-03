@@ -430,7 +430,7 @@ class TestAliases(object):
         extracted = {i.rhs: i.lhs for i in exprs}
         ispace = exprs[0].ispace
 
-        aliases = collect(extracted, ispace, False, 1)
+        aliases = collect(extracted, ispace, False)
 
         assert len(aliases) == len(expected)
         assert all(i.pivot in expected for i in aliases)
@@ -1061,13 +1061,12 @@ class TestAliases(object):
                 Eq(v.forward, d1((1 - f + f * e**2) * d0(v) + f * e * sqrt(1 - e**2)))]
 
         op0 = Operator(eqns, opt='noop')
-        op1 = Operator(eqns, opt='advanced')
+        op1 = Operator(eqns, opt=('advanced', {'cire-schedule': 2}))
 
         # Check code generation
         # We expect two temporary Arrays which have in common a sub-expression
         # stemming from `d0(v, p0, p1)`
         arrays = [i for i in FindSymbols().visit(op1._func_table['bf0']) if i.is_Array]
-        from IPython import embed; embed()
         assert len(arrays) == 7
         vexpandeds = FindNodes(VExpanded).visit(op1._func_table['bf0'])
         assert len(vexpandeds) == (2 if configuration['language'] == 'openmp' else 0)
@@ -1086,7 +1085,7 @@ class TestAliases(object):
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
-        assert sum(i.ops for i in summary1.values()) == 60
+        assert sum(i.ops for i in summary1.values()) == 76
 
     @pytest.mark.parametrize('rotate', [False, True])
     def test_from_different_nests(self, rotate):
@@ -1365,11 +1364,10 @@ class TestAliases(object):
 
         xs, ys, zs = self.get_params(op, 'x_size', 'y_size', 'z_size')
         arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
-        assert len(arrays) == 4
+        assert len(arrays) == 3
         self.check_array(arrays[0], ((0, 0),), (ys,))
         self.check_array(arrays[1], ((0, 0), (0, 0)), (xs, zs))
-        self.check_array(arrays[2], ((0, 0),), (xs,))
-        self.check_array(arrays[3], ((0, 0), (0, 0)), (xs, ys))
+        self.check_array(arrays[2], ((0, 0), (0, 0)), (xs, ys))
 
     def test_space_invariant_v4(self):
         """
@@ -1449,6 +1447,26 @@ class TestAliases(object):
         assert len(arrays) == 2
         assert all(i._mem_heap and not i._mem_external for i in arrays)
 
+    def test_discarded_compound(self):
+        """
+        Test that compound aliases may be ignored if part of a bigger alias.
+        """
+        grid = Grid((10, 10))
+        dt = grid.time_dim.spacing
+
+        a = Function(name="a", grid=grid, space_order=4)
+        e = TimeFunction(name="e", grid=grid, space_order=4)
+
+        eqn = Eq(e.forward, e/(1./cos(a) + 1/(dt**2*a**2)) + dt**-2 + a**-2)
+
+        op = Operator(eqn)
+
+        trees = retrieve_iteration_tree(op)
+        assert len(trees) == 2
+        arrays = [i for i in FindSymbols().visit(trees[0].root) if i.is_Array]
+        assert len(arrays) == 1
+        assert all(i._mem_heap and not i._mem_external for i in arrays)
+
     def test_lazy_solve_produces_larger_temps(self):
         """
         Test that using `solve` doesn't affect CIRE.
@@ -1461,7 +1479,10 @@ class TestAliases(object):
         eq = Eq(u.forward, solve(pde, u.forward))
 
         op = Operator(eq)
+        assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 1
+        assert op._profiler._sections['section0'].sops == 59
 
+        op = Operator(eq, opt=('advanced', {'cire-schedule': 0}))
         assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 2
         assert op._profiler._sections['section0'].sops == 39
 
@@ -1719,6 +1740,7 @@ class TestAliases(object):
 
         p = TimeFunction(name='p', grid=grid, space_order=so, time_order=to)
         p1 = TimeFunction(name='p', grid=grid, space_order=so, time_order=to)
+        p2 = TimeFunction(name='p', grid=grid, space_order=so, time_order=to)
         r = TimeFunction(name='r', grid=grid, space_order=so, time_order=to)
         delta = Function(name='delta', grid=grid, space_order=so)
         theta = Function(name='theta', grid=grid, space_order=so)
@@ -1726,6 +1748,7 @@ class TestAliases(object):
 
         p.data_with_halo[:] = 1.1
         p1.data_with_halo[:] = 1.1
+        p2.data_with_halo[:] = 1.1
         r.data_with_halo[:] = 0.5
         delta.data_with_halo[:] = 0.2
         theta.data_with_halo[:] = 0.8
@@ -1738,8 +1761,12 @@ class TestAliases(object):
 
         eqn = Eq(p.backward, H0)
 
-        op0 = Operator(eqn, subs=grid.spacing_map, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, subs=grid.spacing_map, opt=('advanced', {'openmp': True}))
+        op0 = Operator(eqn, subs=grid.spacing_map,
+                       opt=('noop', {'openmp': True}))
+        op1 = Operator(eqn, subs=grid.spacing_map,
+                       opt=('advanced', {'openmp': True, 'cire-schedule': 0}))
+        op2 = Operator(eqn, subs=grid.spacing_map,
+                       opt=('advanced', {'openmp': True}))
 
         # Check code generation
         xs, ys, zs = self.get_params(op1, 'x0_blk0_size', 'y0_blk0_size', 'z_size')
@@ -1751,12 +1778,16 @@ class TestAliases(object):
 
         # Check numerical output
         op0(time_M=1)
-        summary = op1(time_M=1, p=p1)
-        assert np.isclose(norm(p), norm(p1), atol=1e-15)
+        summary1 = op1(time_M=1, p=p1)
+        exp_p = norm(p)
+        assert np.isclose(exp_p, norm(p1), atol=1e-15)
+        summary2 = op2(time_M=1, p=p2)
+        assert np.isclose(exp_p, norm(p2), atol=1e-15)
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
-        assert summary[('section1', None)].ops == 75
+        assert summary1[('section1', None)].ops == 75
+        assert summary2[('section1', None)].ops == 108
 
     @pytest.mark.parametrize('rotate', [False, True])
     @switchconfig(profiling='advanced')
@@ -1812,16 +1843,15 @@ class TestAliases(object):
     @switchconfig(profiling='advanced')
     @pytest.mark.parametrize('expr,exp_arrays,exp_ops', [
         ('f.dx.dx + g.dx.dx',
-         (1, 1, 2, (0, 1)), (46, 40, 49, 16)),
+         (1, 2, (0, 1)), (46, 61, 16)),
         ('v.dx.dx + p.dx.dx',
-         (2, 2, 2, (0, 2)), (61, 49, 49, 24)),
+         (2, 2, (0, 2)), (61, 61, 25)),
         ('(v.dx + v.dy).dx - (v.dx + v.dy).dy + 2*f.dx.dx + f*f.dy.dy + f.dx.dx(x0=1)',
-         (2, 2, 4, (0, 2)), (262, 250, 259, 92)),
+         (3, 3, (0, 3)), (217, 201, 74)),
         ('(g*(1 + f)*v.dx).dx + (2*g*f*v.dx).dx',
-         (1, 1, 2, (0, 1)), (50, 44, 53, 18)),
-        pytest.param('g*(f.dx.dx + g.dx.dx)', (1, 1, 2, (0, 1)), (47, 41, 50, 18),
-                     marks=pytest.mark.xfail(reason="must catch derivatives, not sops, "
-                                                    "or it will get nr=1 at collect()")),
+         (1, 1, (0, 1)), (50, 62, 18)),
+        ('g*(f.dx.dx + g.dx.dx)',
+         (1, 2, (0, 1)), (47, 62, 17)),
     ])
     def test_sum_of_nested_derivatives(self, expr, exp_arrays, exp_ops):
         """
@@ -1848,26 +1878,23 @@ class TestAliases(object):
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('collect-derivs', 'cire-sops', {'openmp': True}))
-        op2 = Operator(eqn, opt=('collect-derivs', 'cire-sops', {'openmp': True}))
-        op3 = Operator(eqn, opt=('cire-sops', {'openmp': True}))
-        op4 = Operator(eqn, opt=('advanced', {'openmp': True}))
+        op2 = Operator(eqn, opt=('cire-sops', {'openmp': True}))
+        op3 = Operator(eqn, opt=('advanced', {'openmp': True}))
 
         # Check code generation
         arrays = [i for i in FindSymbols().visit(op1) if i.is_Array]
         assert len(arrays) == exp_arrays[0]
         arrays = [i for i in FindSymbols().visit(op2) if i.is_Array]
         assert len(arrays) == exp_arrays[1]
-        arrays = [i for i in FindSymbols().visit(op3) if i.is_Array]
-        assert len(arrays) == exp_arrays[2]
-        arrays = [i for i in FindSymbols().visit(op4._func_table['bf0']) if i.is_Array]
-        exp_inv, exp_sops = exp_arrays[3]
+        arrays = [i for i in FindSymbols().visit(op3._func_table['bf0']) if i.is_Array]
+        exp_inv, exp_sops = exp_arrays[2]
         assert len(arrays) == exp_inv + exp_sops
-        assert len(FindNodes(VExpanded).visit(op4._func_table['bf0'])) == exp_sops
+        assert len(FindNodes(VExpanded).visit(op3._func_table['bf0'])) == exp_sops
 
         # Check numerical output
         op0(time_M=20)
         exp_v = norm(v)
-        for n, op in enumerate([op1, op2, op3, op4]):
+        for n, op in enumerate([op1, op2, op3]):
             v1 = TimeFunction(name="v", grid=grid, space_order=4)
             v1.data_with_halo[:] = 1.2
 
@@ -2058,7 +2085,8 @@ class TestAliases(object):
         eqn = Eq(p.forward, ((1+sqrt(eps)) * p.dy).dy + (p.dz).dz)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-rotate': rotate}))
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-rotate': rotate,
+                                              'min-storage': True}))
 
         # Check code generation
         # `min-storage` leads to one 2D and one 3D Arrays
@@ -2319,7 +2347,7 @@ class TestTTIv2(object):
 
     @switchconfig(profiling='advanced')
     @pytest.mark.parametrize('space_order,expected', [
-        (4, 197), (12, 389)
+        (4, 191), (12, 383)
     ])
     def test_opcounts(self, space_order, expected):
         grid = Grid(shape=(3, 3, 3))
@@ -2356,8 +2384,12 @@ class TestTTIv2(object):
 
         eqns = [Eq(u.forward, (2*u - u.backward) + s**2/m * (e * H2u + H1v)),
                 Eq(v.forward, (2*v - v.backward) + s**2/m * (d * H2v + H1v))]
-        op = Operator(eqns)
+        op = Operator(eqns, openmp=True)
 
+        # Check code generation
+        arrays = FindNodes(VExpanded).visit(op._func_table['bf0'])
+        assert len(arrays) == 4
+        assert all(len(i.pointee.shape) == 2 for i in arrays)  # Expected 2D arrays
         sections = list(op._profiler._sections.values())
         assert len(sections) == 2
         assert sections[0].sops == 4

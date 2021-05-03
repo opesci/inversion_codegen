@@ -82,6 +82,11 @@ def cire(clusters, mode, sregistry, options, platform):
     t0 = 2.0*t2[x,y,z]
     t1 = 3.0*t2[x,y,z+1]
     """
+    modes = {
+        CireInvariants.optname: CireInvariants,
+        CireSops.optname: CireSops,
+    }
+
     return modes[mode](sregistry, options, platform).process(clusters)
 
 
@@ -101,19 +106,16 @@ class CireTransformer(object):
         self.opt_rotate = options['cire-rotate']
         self.opt_ftemps = options['cire-ftemps']
         self.opt_mingain = options['cire-mingain']
-        self.opt_schedule_strategy = options['cire-schedule']
 
     def _aliases_from_clusters(self, clusters, exclude, meta):
         exprs = flatten([c.exprs for c in clusters])
 
         # [Clusters]_n -> [Schedule]_m
         variants = []
-        for g in self._generators:
+        for mapper in self._generate(exprs, exclude):
             # Clusters -> AliasList
-            mapper = g.generate(exprs, exclude)
-            found = collect(mapper.extracted, meta.ispace,
-                            self.opt_minstorage, self.opt_mingain)
-            pexprs, aliases = choose(found, exprs, mapper)
+            found = collect(mapper.extracted, meta.ispace, self.opt_minstorage)
+            pexprs, aliases = choose(found, exprs, mapper, self.opt_mingain)
             if not aliases:
                 continue
 
@@ -125,7 +127,7 @@ class CireTransformer(object):
         # [Schedule]_m -> Schedule (s.t. best memory/flops trade-off)
         if not variants:
             return []
-        schedule, exprs = pick_best(variants, self.opt_schedule_strategy)
+        schedule, exprs = pick_best(variants, self.opt_schedule_strategy, self._betterv)
 
         # Schedule -> Schedule (optimization)
         if self.opt_rotate:
@@ -156,15 +158,45 @@ class CireTransformer(object):
 
         return processed
 
-    @property
-    def _generators(self):
+    def _generate(self, exprs, exclude):
         """
-        A CireTransformer uses one or more Generators to extract sub-expressions
-        that are potential CIRE candidates. Different Generators may capture
-        different sets of sub-expressions, and therefore be characterized by
-        different memory/flops trade-offs.
+        Generate one or more extractions from ``exprs``. An extraction is a
+        set of CIRE candidates which may be turned into aliases. Two different
+        extractions may contain overlapping sub-expressions and, therefore,
+        should be processed and evaluated indipendently. A CIRE candidate won't
+        contain any of the symbols appearing in ``exclude``.
         """
         raise NotImplementedError
+
+    def _do_generate(self, exprs, exclude, cbk_search, cbk_compose=None):
+        """
+        Carry out the bulk of the work of ``_generate``.
+        """
+        counter = generator()
+        make = lambda: Symbol(name='dummy%d' % counter())
+
+        if cbk_compose is None:
+            cbk_compose = lambda *args: None
+
+        mapper = Uxmapper()
+        for e in exprs:
+            for i in cbk_search(e):
+                if not i.is_commutative:
+                    continue
+
+                terms = cbk_compose(i)
+
+                # Make sure we won't break any data dependencies
+                if terms:
+                    free_symbols = set().union(*[i.free_symbols for i in terms])
+                else:
+                    free_symbols = i.free_symbols
+                if {a.function for a in free_symbols} & exclude:
+                    continue
+
+                mapper.add(i, make, terms)
+
+        return mapper
 
     def _lookup_key(self, c):
         """
@@ -172,6 +204,14 @@ class CireTransformer(object):
         together to find redundant aliases. Clusters should have a different key
         if they cannot be processed together, e.g., when this would lead to
         dependencies violation.
+        """
+        raise NotImplementedError
+
+    def _betterv(self, delta_flops, delta_ws):
+        """
+        Given the deltas in flop reduction and working set size increase of two
+        Variants, return True if the second variant is estimated to deliever
+        better performance, False otherwise.
         """
         raise NotImplementedError
 
@@ -187,6 +227,7 @@ class CireInvariants(CireTransformer, Queue):
         super().__init__(sregistry, options, platform)
 
         self.opt_maxpar = True
+        self.opt_schedule_strategy = None
 
     def process(self, clusters):
         return self._process_fatd(clusters, 1, xtracted=[])
@@ -221,15 +262,36 @@ class CireInvariants(CireTransformer, Queue):
 
         return processed
 
-    @property
-    def _generators(self):
-        return (GeneratorExpensive, GeneratorExpensiveCompounds)
+    def _generate(self, exprs, exclude):
+        # E.g., extract `sin(x)` and `cos(x)` from `a*sin(x)*cos(x)`
+        rule = lambda e: e.is_Function or (e.is_Pow and e.exp.is_Number and e.exp < 1)
+        cbk_search = lambda e: search(e, rule, 'all', 'bfs_first_hit')
+        basextr = self._do_generate(exprs, exclude, cbk_search)
+        if not basextr:
+            return
+        yield basextr
+
+        # E.g., extract `sin(x)*cos(x)` from `a*sin(x)*cos(x)`
+        def cbk_search(expr):
+            found, others = split(expr.args, lambda a: a in basextr)
+            ret = [expr] if found else []
+            for a in others:
+                ret.extend(cbk_search(a))
+            return ret
+
+        cbk_compose = lambda e: split(e.args, lambda a: a in basextr)[0]
+        yield self._do_generate(exprs, exclude, cbk_search, cbk_compose)
 
     def _lookup_key(self, c, d):
         ispace = c.ispace.reset()
         dintervals = c.dspace.intervals.drop(d).reset()
         properties = frozendict({d: relax_properties(v) for d, v in c.properties.items()})
         return AliasKey(ispace, dintervals, c.dtype, None, properties)
+
+    def _betterv(self, delta_flops, delta_ws):
+        # Always prefer the Variant with fewer temporaries
+        return ((delta_ws == 0 and delta_flops < 0) or
+                (delta_ws > 0))
 
 
 class CireSops(CireTransformer):
@@ -240,6 +302,7 @@ class CireSops(CireTransformer):
         super().__init__(sregistry, options, platform)
 
         self.opt_maxpar = options['cire-maxpar']
+        self.opt_schedule_strategy = options['cire-schedule']
 
     def process(self, clusters):
         processed = []
@@ -261,133 +324,57 @@ class CireSops(CireTransformer):
 
         return processed
 
-    @property
-    def _generators(self):
-        return (GeneratorDerivative, GeneratorDerivativeCompounds)
+    def _generate(self, exprs, exclude):
+        # E.g., extract `u.dx*a*b` and `u.dx*a*c` from `[(u.dx*a*b).dy`, `(u.dx*a*c).dy]`
+        def cbk_search(expr):
+            if isinstance(expr, EvalDerivative) and not expr.base.is_Function:
+                return expr.args
+            else:
+                return flatten(e for e in [cbk_search(a) for a in expr.args] if e)
+
+        cbk_compose = lambda e: split_coeff(e)[1]
+        basextr = self._do_generate(exprs, exclude, cbk_search, cbk_compose)
+        if not basextr:
+            return
+        yield basextr
+
+        # E.g., extract `u.dx*a` from `[(u.dx*a*b).dy, (u.dx*a*c).dy]`
+        # That is, attempt extracting the largest common derivative-induced subexprs
+        mappers = [deindexify(e) for e in basextr.extracted]
+        counter = Counter(flatten(m.keys() for m in mappers))
+        groups = as_mapper(counter, key=counter.get)
+        grank = {k: sorted(v, key=lambda e: estimate_cost(e), reverse=True)
+                 for k, v in groups.items()}
+
+        def cbk_search2(expr, rank):
+            ret = []
+            for e in cbk_search(expr):
+                mapper = deindexify(e)
+                for i in rank:
+                    if i in mapper:
+                        ret.extend(mapper[i])
+                        break
+            return ret
+
+        for i in sorted(grank, reverse=True)[:2]:
+            cbk_search_i = lambda e: cbk_search2(e, grank[i])
+            yield self._do_generate(exprs, exclude, cbk_search_i, cbk_compose)
 
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
 
-
-modes = {
-    CireInvariants.optname: CireInvariants,
-    CireSops.optname: CireSops,
-}
-
-
-class Generator(object):
-
-    @classmethod
-    def _basextr(cls, exprs, exclude, make):
-        return Uxmapper()
-
-    @classmethod
-    def _search(cls, expr, basextr):
-        raise NotImplementedError
-
-    @classmethod
-    def _compose(cls, expr, basextr):
-        return None
-
-    @classmethod
-    def generate(cls, exprs, exclude, make=None):
-        if make is None:
-            counter = generator()
-            make = lambda: Symbol(name='dummy%d' % counter())
-
-        basextr = cls._basextr(exprs, exclude, make)
-
-        mapper = Uxmapper()
-        for e in exprs:
-            for i in cls._search(e, basextr):
-                if not i.is_commutative:
-                    continue
-
-                terms = cls._compose(i, basextr)
-
-                # Make sure we won't break any data dependencies
-                if terms:
-                    free_symbols = set().union(*[i.free_symbols for i in terms])
-                else:
-                    free_symbols = i.free_symbols
-                if {a.function for a in free_symbols} & exclude:
-                    continue
-
-                mapper.add(i, make, terms)
-
-        return mapper
+    def _betterv(self, delta_flops, delta_ws):
+        # If there's a greater flop reduction using fewer temporaries, no doubts
+        # what's gonna be the best variant. But if the better flop reduction
+        # comes at the price of using more temporaries, then we have to apply
+        # heuristics, in particular we estimate how many flops would a temporary
+        # allow to save
+        return ((delta_flops >= 0 and delta_ws > 0 and delta_flops / delta_ws < 50) or
+                (delta_flops <= 0 and delta_ws < 0 and delta_flops / delta_ws > 50) or
+                (delta_flops <= 0 and delta_ws >= 0))
 
 
-class GeneratorExpensive(Generator):
-
-    @classmethod
-    def _search(cls, expr, *args):
-        rule = lambda e: e.is_Function or (e.is_Pow and e.exp.is_Number and e.exp < 1)
-        return search(expr, rule, 'all', 'bfs_first_hit')
-
-
-class GeneratorExpensiveCompounds(GeneratorExpensive):
-
-    @classmethod
-    def _basextr(cls, exprs, exclude, make):
-        return cls.__base__.generate(exprs, exclude, make)
-
-    @classmethod
-    def _search(cls, expr, basextr):
-        rule = lambda e: any(a in basextr for a in e.args)
-        return search(expr, rule, 'all', 'dfs')
-
-    @classmethod
-    def _compose(cls, expr, basextr):
-        return split(expr.args, lambda a: a in basextr)[0]
-
-
-class GeneratorDerivative(Generator):
-
-    @classmethod
-    def _search(cls, expr, *args):
-        if isinstance(expr, EvalDerivative) and not expr.base.is_Function:
-            return expr.args
-        else:
-            return flatten(e for e in [cls._search(a) for a in expr.args] if e)
-
-    @classmethod
-    def _compose(cls, expr, *args):
-        return split_coeff(expr)[1]
-
-
-class GeneratorDerivativeCompounds(GeneratorDerivative):
-
-    @classmethod
-    def _basextr(cls, exprs, exclude, make):
-        basextr = cls.__base__.generate(exprs, exclude, make)
-
-        # Find the largest de-indexified sub-expressions redundantly
-        # appearing across multiple exprs
-        mappers = [deindexify(e) for e in basextr.extracted]
-
-        # Sort by occurrences and costs
-        counter = Counter(flatten(m.keys() for m in mappers))
-        rank = sorted(counter, key=lambda e: (counter[e], estimate_cost(e)), reverse=True)
-
-        return rank
-
-    @classmethod
-    def _search(cls, expr, basextr):
-        found = cls.__base__._search(expr)
-
-        ret = []
-        for e in found:
-            mapper = deindexify(e)
-            for i in basextr:
-                if i in mapper:
-                    ret.extend(mapper[i])
-                    break
-
-        return ret
-
-
-def collect(extracted, ispace, minstorage, mingain):
+def collect(extracted, ispace, minstorage):
     """
     Find groups of aliasing expressions.
 
@@ -553,20 +540,17 @@ def collect(extracted, ispace, minstorage, mingain):
                 distance = [(d, set(v)) for d, v in LabeledVector.transpose(*distance)]
                 distances.append(LabeledVector([(d, v.pop()) for d, v in distance]))
 
-            # Compute the alias score. With a score of 0, the alias is discarded
+            # Compute the alias score
             na = len(aliaseds)
             nr = nredundants(ispace, pivot)
-            try:
-                score = estimate_cost(pivot, True)*((na - 1) + nr) // mingain
-            except ZeroDivisionError:
-                score = np.inf
+            score = estimate_cost(pivot, True)*((na - 1) + nr)
             if score > 0:
                 aliases.add(pivot, aliaseds, list(mapper), distances, score)
 
     return aliases
 
 
-def choose(aliases, exprs, mapper):
+def choose(aliases, exprs, mapper, mingain):
     """
     Analyze the detected aliases and, after applying a cost model to rule out
     the aliases with a bad memory/flops trade-off, inject them into the original
@@ -574,20 +558,28 @@ def choose(aliases, exprs, mapper):
     """
     aliases = AliasList(aliases)
 
+    # `score < m` => discarded
+    # `score > M` => optimized
+    # `m <= score <= M` => maybe discarded, maybe optimized -- depends on heuristics
+    m = mingain
+    M = mingain*3
+
     if not aliases:
         return exprs, aliases
 
-    # Project the candidate aliases into exprs to determine what the new
-    # working set would be
+    # Filter off the aliases with low score
+    key = lambda a: a.score >= m
+    aliases.filter(key)
+
+    # Project the candidate aliases into `exprs` to derive the final working set
     mapper = {k: v for k, v in mapper.items() if v.free_symbols & set(aliases.aliaseds)}
     templated = [uxreplace(e, mapper) for e in exprs]
-
-    # Filter off the aliases inducing a non favorable tradeoff between operation
-    # count reduction and working set size increase
     owset = wset(templated)
+
+    # Filter off the aliases with a weak flop-reduction / working-set tradeoff
     key = lambda a: \
-        a.score > 2 or \
-        1 <= a.score <= 2 and max(len(wset(a.pivot)), 1) > len(wset(a.pivot) & owset)
+        a.score > M or \
+        m <= a.score <= M and max(len(wset(a.pivot)), 1) > len(wset(a.pivot) & owset)
     aliases.filter(key)
 
     if not aliases:
@@ -888,7 +880,7 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
     return clusters, subs
 
 
-def pick_best(variants, schedule_strategy):
+def pick_best(variants, schedule_strategy, betterv):
     """
     Return the variant with the best trade-off between operation count
     reduction and working set increase. Heuristics may be applied.
@@ -898,7 +890,7 @@ def pick_best(variants, schedule_strategy):
             return variants[schedule_strategy]
         except IndexError:
             raise ValueError("Illegal schedule strategy %d; accepted `[0, %d]"
-                             % len(variants))
+                             % (schedule_strategy, len(variants)))
 
     best = None
     best_flops_score = None
@@ -930,21 +922,13 @@ def pick_best(variants, schedule_strategy):
         i_ws_score = sum(i_ws_score)
 
         if best is None:
-            best = i
-            best_flops_score = i_flops_score
-            best_ws_score = i_ws_score
+            best, best_flops_score, best_ws_score = i, i_flops_score, i_ws_score
             continue
 
-        if i_flops_score == 0:
-            continue
-
-        # The variant with the smaller working set size increase wins unless
-        # there's a significant reduction in operation count in the other one
-        delta = i_ws_score - best_ws_score
-        if (delta > 0 and i_flops_score / best_flops_score > 1.3) or \
-           (delta == 0 and i_flops_score > best_flops_score) or \
-           (delta < 0 and best_flops_score / i_flops_score <= 1.3):
-            best = i
+        delta_flops = best_flops_score - i_flops_score
+        delta_ws = best_ws_score - i_ws_score
+        if betterv(delta_flops, delta_ws):
+            best, best_flops_score, best_ws_score = i, i_flops_score, i_ws_score
 
     return best
 
@@ -1324,7 +1308,8 @@ def _deindexify(expr):
             mapper[k].extend(v)
 
     rexpr = rebuild_if_untouched(expr, args)
-    mapper[rexpr] = [expr]
+    if rexpr is not expr:
+        mapper[rexpr] = [expr]
 
     return rexpr, mapper
 
