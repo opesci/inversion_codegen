@@ -10,7 +10,25 @@ from devito.symbolics import estimate_cost
 from devito.tools import as_tuple, flatten, frozendict
 from devito.types import normalize_syncs
 
-__all__ = ["Cluster", "ClusterGroup"]
+__all__ = ["Cluster", "ClusterGroup", "Guard"]
+
+
+class Guard(object):
+
+    """
+    Represents a condition under which a Cluster should be computed.
+
+    Parameters
+    ----------
+    condition : expr-like
+        The limitating condition.
+    brk : bool
+        If true, the cluster should break (stop computing) once the condition is false.
+    """
+
+    def __init__(self, condition, brk):
+        self.condition = condition
+        self.brk = brk
 
 
 class Cluster(object):

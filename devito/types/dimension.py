@@ -697,6 +697,9 @@ class ConditionalDimension(DerivedDimension):
         If True, use ``condition``, rather than the parent Dimension, to
         index into arrays. A typical use case is when arrays are accessed
         indirectly via the ``condition`` expression. Defaults to False.
+    brk : bool, optional
+        If True, the iteration loop should break whenever the ``condition``
+        is False.
 
     Examples
     --------
@@ -750,11 +753,12 @@ class ConditionalDimension(DerivedDimension):
     is_Conditional = True
 
     def __init_finalize__(self, name, parent, factor=None, condition=None,
-                          indirect=False):
+                          indirect=False, brk=False):
         super().__init_finalize__(name, parent)
         self._factor = factor
         self._condition = condition
         self._indirect = indirect
+        self._brk = brk
 
     @property
     def spacing(self):
@@ -771,6 +775,10 @@ class ConditionalDimension(DerivedDimension):
     @property
     def indirect(self):
         return self._indirect
+
+    @property
+    def brk(self):
+        return self._brk
 
     @property
     def index(self):

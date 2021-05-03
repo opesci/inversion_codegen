@@ -1,7 +1,7 @@
 from collections import OrderedDict
 
 from devito.ir.iet import (Expression, Increment, Iteration, List, Conditional, SyncSpot,
-                           Section, HaloSpot, ExpressionBundle)
+                           Section, HaloSpot, ExpressionBundle, Break)
 from devito.tools import timed_pass
 
 __all__ = ['iet_build']
@@ -24,7 +24,8 @@ def iet_build(stree):
             body = ExpressionBundle(i.ispace, i.ops, i.traffic, body=exprs)
 
         elif i.is_Conditional:
-            body = Conditional(i.guard, queues.pop(i))
+            e = queues.pop(i)
+            body = Conditional(i.guard.condition, e, Break() if i.guard.brk else None)
 
         elif i.is_Iteration:
             body = Iteration(queues.pop(i), i.dim, i.limits, direction=i.direction,

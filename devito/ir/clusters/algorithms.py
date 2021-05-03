@@ -7,10 +7,12 @@ import sympy
 from devito.exceptions import InvalidOperator
 from devito.ir.support import Any, Backward, Forward, IterationSpace
 from devito.ir.clusters.analysis import analyze
-from devito.ir.clusters.cluster import Cluster, ClusterGroup
+from devito.ir.clusters.cluster import Cluster, ClusterGroup, Guard
 from devito.ir.clusters.queue import Queue, QueueStateful
+from devito.parameters import configuration
 from devito.symbolics import uxreplace, xreplace_indices
-from devito.tools import DefaultOrderedDict, as_mapper, flatten, is_integer, timed_pass
+from devito.tools import (DefaultOrderedDict, as_mapper, flatten, frozendict,
+                          is_integer, timed_pass)
 from devito.types import ModuloDimension
 
 __all__ = ['clusterize']
@@ -59,7 +61,7 @@ class Schedule(QueueStateful):
           consider the following coupled statements:
 
             - `u[t+1, x] = f(u[t, x])`
-            - `v[t+1, x] = g(v[t, x], u[t, x], u[t+1, x], u[t+2, x]`
+            - `v[t+1, x] = g(v[t, x], u[t, x], u[t+1, x], u[t+2, x])`
 
           The first statement has a flow-dependence along `t`, while the second
           one has both a flow- and an anti-dependence along `t`, hence the two
@@ -114,10 +116,11 @@ class Schedule(QueueStateful):
                 return self.callback(clusters[:-1], prefix, backlog, require_break)
 
         # Schedule Clusters over different IterationSpaces if this increases parallelism
-        for i in range(1, len(clusters)):
-            if self._break_for_parallelism(scope, candidates, i):
-                return self.callback(clusters[:i], prefix, clusters[i:] + backlog,
-                                     candidates | known_break)
+        if configuration["loop-splitting"]:
+            for i in range(1, len(clusters)):
+                if self._break_for_parallelism(scope, candidates, i):
+                    return self.callback(clusters[:i], prefix, clusters[i:] + backlog,
+                                         candidates | known_break)
 
         # Compute iteration direction
         idir = {d: Backward for d in candidates if d.root in scope.d_anti.cause}
@@ -181,14 +184,15 @@ def guard(clusters):
             # Chain together all conditions from all expressions in `c`
             guards = {}
             for cd in cds:
-                condition = guards.setdefault(cd.parent, [])
+                condition = []
                 for e in exprs:
                     try:
                         condition.append(e.conditionals[cd])
                         break
                     except KeyError:
                         pass
-            guards = {d: sympy.And(*v, evaluate=False) for d, v in guards.items()}
+                condition = sympy.And(*condition, evaluate=False)
+                guards[cd.parent] = Guard(condition, cd.brk)
 
             # Construct a guarded Cluster
             processed.append(c.rebuild(exprs=exprs, guards=guards))

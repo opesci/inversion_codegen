@@ -17,6 +17,8 @@ from devito.tools import GenericVisitor, as_tuple, filter_sorted, flatten
 from devito.types.basic import AbstractFunction
 from devito.types import ArrayObject, VoidPointer
 
+from sympy.logic.boolalg import BooleanTrue
+
 
 __all__ = ['FindNodes', 'FindSections', 'FindSymbols', 'MapExprStmts', 'MapNodes',
            'IsPerfectIteration', 'printAST', 'CGen', 'Transformer']
@@ -297,13 +299,19 @@ class CGen(Visitor):
         else:
             return MultilineCall(o.name, arguments, nested_call, o.is_indirect)
 
+    def visit_Break(self, o):
+        return c.Statement("break")
+
     def visit_Conditional(self, o):
-        then_body = c.Block(self._visit(o.then_body))
-        if o.else_body:
-            else_body = c.Block(self._visit(o.else_body))
-            return c.If(ccode(o.condition), then_body, else_body)
+        if o.condition is BooleanTrue():
+            return c.Collection(self._visit(o.then_body))
         else:
-            return c.If(ccode(o.condition), then_body)
+            then_body = c.Block(self._visit(o.then_body))
+            if o.else_body:
+                else_body = c.Block(self._visit(o.else_body))
+                return c.If(ccode(o.condition), then_body, else_body)
+            else:
+                return c.If(ccode(o.condition), then_body)
 
     def visit_Iteration(self, o):
         body = flatten(self._visit(i) for i in o.children)

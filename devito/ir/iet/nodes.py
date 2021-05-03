@@ -23,7 +23,7 @@ __all__ = ['Node', 'Block', 'Expression', 'Element', 'Callable', 'Call', 'Condit
            'MetaCall', 'PointerCast', 'ForeignExpression', 'HaloSpot', 'IterationTree',
            'ExpressionBundle', 'AugmentedExpression', 'Increment', 'Return', 'While',
            'ParallelIteration', 'ParallelBlock', 'Dereference', 'Lambda', 'SyncSpot',
-           'PragmaList', 'DummyExpr', 'BlankLine', 'ParallelTree']
+           'PragmaList', 'DummyExpr', 'BlankLine', 'ParallelTree', 'Break']
 
 # First-class IET nodes
 
@@ -52,6 +52,7 @@ class Node(Signer):
     is_Section = False
     is_HaloSpot = False
     is_ExpressionBundle = False
+    is_Break = False
     is_ParallelIteration = False
     is_ParallelBlock = False
     is_SyncSpot = False
@@ -733,6 +734,13 @@ class Conditional(Node):
     @property
     def defines(self):
         return ()
+
+
+class Break(Node):
+
+    """A node representing a break statement"""
+
+    is_Break = True
 
 
 # Second level IET nodes

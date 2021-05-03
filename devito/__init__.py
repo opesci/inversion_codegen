@@ -54,6 +54,9 @@ preprocessor = lambda i: {0: 'C', 1: 'openmp'}.get(i, i)  # Handles DEVITO_OPENM
 configuration.add('language', 'C', [0, 1, 'C', 'openmp', 'openacc'],
                   preprocessor=preprocessor, callback=reinit_compiler, deprecate='openmp')
 
+# Option to toggle the loop splitting optimization
+configuration.add('loop-splitting', 1, [0, 1], preprocessor=bool)
+
 # MPI mode (0 => disabled, 1 == basic)
 preprocessor = lambda i: bool(i) if isinstance(i, int) else i
 configuration.add('mpi', 0, [0, 1] + list(mpi_registry),
