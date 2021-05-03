@@ -2519,6 +2519,17 @@ class TestTTI(object):
         sections = list(op.op_fwd()._profiler._sections.values())
         assert sections[1].sops == expected
 
+    @switchconfig(profiling='advanced')
+    @pytest.mark.parametrize('space_order,expected', [
+        (4, 111),
+    ])
+    def test_opcounts_adjoint(self, space_order, expected):
+        wavesolver = self.tti_operator(opt=('advanced', {'openmp': False}))
+        op = wavesolver.op_adj()
+
+        assert op._profiler._sections['section1'].sops == expected
+        assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 7
+
 
 class TestTTIv2(object):
 
