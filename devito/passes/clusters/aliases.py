@@ -1,21 +1,24 @@
-from collections import OrderedDict, defaultdict, namedtuple
-from functools import partial
+from collections import Counter, OrderedDict, defaultdict, namedtuple
+from functools import partial, singledispatch
 from itertools import groupby
 
 from cached_property import cached_property
 import numpy as np
+import sympy
 
+from devito.finite_differences import EvalDerivative
 from devito.ir import (SEQUENTIAL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
                        Forward, IterationInstance, IterationSpace, Interval,
                        Cluster, Queue, IntervalGroup, LabeledVector,
                        detect_accesses, build_intervals, normalize_properties,
                        relax_properties)
 from devito.passes.clusters.utils import timed_pass
-from devito.symbolics import (Uxmapper, compare_ops, estimate_cost, q_constant,
-                              q_leaf, retrieve_indexed, search, uxreplace)
+from devito.symbolics import (Uxmapper, compare_ops, count, estimate_cost, q_constant,
+                              q_leaf, rebuild_if_untouched, retrieve_indexed,
+                              search, uxreplace)
 from devito.tools import as_mapper, as_tuple, flatten, frozendict, generator, split
 from devito.types import (Array, TempFunction, Eq, Symbol, ModuloDimension,
-                          CustomDimension, IncrDimension)
+                          CustomDimension, IncrDimension, Indexed)
 
 __all__ = ['cire']
 
@@ -108,17 +111,12 @@ class CireTransformer(object):
         for g in self._generators:
             exprs = flatten([c.exprs for c in clusters])
 
-            extractors = g.generate(exprs, exclude, maxalias=self.opt_maxalias)
+            mapper = g.generate(exprs, exclude)
 
-            aliases = AliasList()
-            for extract in extractors:
-                mapper = extract(exprs)
+            found = collect(mapper.extracted, meta.ispace,
+                            self.opt_minstorage, self.opt_mingain)
 
-                found = collect(mapper.extracted, meta.ispace,
-                                self.opt_minstorage, self.opt_mingain)
-
-                exprs, chosen = choose(found, exprs, mapper)
-                aliases.update(chosen)
+            exprs, aliases = choose(found, exprs, mapper)
 
             if aliases:
                 variants.append(SpacePoint(aliases, exprs))
@@ -244,7 +242,7 @@ class CireSops(CireTransformer):
         super().__init__(sregistry, options, platform)
 
         self.opt_maxpar = options['cire-maxpar']
-        self.opt_maxalias = options['cire-maxalias']
+        self.opt_maxalias = options['cire-maxalias']  #TODO: DROP!!
 
     def process(self, clusters):
         processed = []
@@ -258,6 +256,8 @@ class CireSops(CireTransformer):
             # u[x, y] = ... r0*a[x, y] ...
             exclude = {i.source.indexed for i in c.scope.d_flow.independent()}
 
+            #TODO: TO OPT NESTED DERIVATIVES, JUST KEEP ITERATING UNTIL
+            # MADE'S PROCESSED-PART IS EMPTY
             made = self._aliases_from_clusters([c], exclude, self._lookup_key(c))
 
             processed.extend(flatten(made) or [c])
@@ -266,7 +266,8 @@ class CireSops(CireTransformer):
 
     @property
     def _generators(self):
-        return (GeneratorDerivatives,)
+        return (GeneratorDerivativeCompounds,)
+        #return (GeneratorDerivative, GeneratorDerivativeCompounds)
 
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
@@ -280,137 +281,114 @@ modes = {
 
 class Generator(object):
 
-    """
-    Defines the interface of a generator for a CireTransformer.
-    """
+    @classmethod
+    def _basextr(cls, exprs, exclude, make):
+        return Uxmapper()
 
     @classmethod
-    def generate(cls, exprs, exclude, **kwargs):
+    def _search(cls, expr, basextr):
         raise NotImplementedError
+
+    @classmethod
+    def _compose(cls, expr, basextr):
+        return None
+
+    @classmethod
+    def generate(cls, exprs, exclude, make=None):
+        if make is None:
+            counter = generator()
+            make = lambda: Symbol(name='dummy%d' % counter())
+
+        basextr = cls._basextr(exprs, exclude, make)
+
+        mapper = Uxmapper()
+        for e in exprs:
+            for i in cls._search(e, basextr):
+                if not i.is_commutative:
+                    continue
+
+                terms = cls._compose(i, basextr)
+
+                # Make sure we won't break any data dependencies
+                if terms:
+                    free_symbols = set().union(*[i.free_symbols for i in terms])
+                else:
+                    free_symbols = i.free_symbols
+                if {a.function for a in free_symbols} & exclude:
+                    continue
+
+                mapper.add(i, make, terms)
+
+        return mapper
 
 
 class GeneratorExpensive(Generator):
 
     @classmethod
-    def _uxmap_expensive(cls, exprs, exclude, make):
-        rule = lambda e: (e.is_Function or
-                          (e.is_Pow and e.exp.is_Number and e.exp < 1))
-
-        mapper = Uxmapper()
-        for e in exprs:
-            for i in search(e, rule, 'all', 'bfs_first_hit'):
-                if {a.function for a in i.free_symbols} & exclude:
-                    continue
-                mapper.add(i, make)
-
-        return mapper
-
-    @classmethod
-    def generate(cls, exprs, exclude, **kwargs):
-        counter = generator()
-        make = lambda: Symbol(name='dummy%d' % counter())
-
-        yield lambda i: cls._uxmap_expensive(i, exclude, make)
+    def _search(cls, expr, *args):
+        rule = lambda e: e.is_Function or (e.is_Pow and e.exp.is_Number and e.exp < 1)
+        return search(expr, rule, 'all', 'bfs_first_hit')
 
 
 class GeneratorExpensiveCompounds(GeneratorExpensive):
 
     @classmethod
-    def _uxmap_expensive_compounds(cls, exprs, exclude, make):
-        extracted = cls._uxmap_expensive(exprs, exclude, make).extracted
-        rule = lambda e: any(a in extracted for a in e.args)
-
-        mapper = Uxmapper()
-        for e in exprs:
-            for i in search(e, rule, 'all', 'dfs'):
-                if not i.is_commutative:
-                    continue
-
-                key = lambda a: a in extracted
-                terms, others = split(i.args, key)
-
-                mapper.add(i, make, terms)
-
-        return mapper
+    def _basextr(cls, exprs, exclude, make):
+        return cls.__base__.generate(exprs, exclude, make)
 
     @classmethod
-    def generate(cls, exprs, exclude, **kwargs):
-        counter = generator()
-        make = lambda: Symbol(name='dummy%d' % counter())
-
-        yield lambda i: cls._uxmap_expensive_compounds(i, exclude, make)
-
-
-class GeneratorDerivatives(Generator):
-
-    # NOTE: the following methods will be greatly simplified when we'll be able
-    # to preserve Derivative information during lowering (currently, when a Derivative
-    # is evaluated, the related information is dropped)
+    def _search(cls, expr, basextr):
+        rule = lambda e: any(a in basextr for a in e.args)
+        return search(expr, rule, 'all', 'dfs')
 
     @classmethod
-    def _max_deriv_order(cls, exprs):
-        # NOTE: e might propagate the Derivative(...) information down from the
-        # symbolic language, but users may do crazy things and write their own custom
-        # expansions "by hand" (i.e., not resorting to Derivative(...)), hence instead
-        # of looking for Derivative(...) we use the following heuristic:
-        #   add(mul, mul, ...) -> stems from first order derivative
-        #   add(mul(add(mul, mul, ...), ...), ...) -> stems from second order derivative
-        #   ...
-        nadds = lambda e: (
-            int(e.is_Add) +
-            max([nadds(a) for a in e.args], default=0) if not q_leaf(e) else 0
-        )
-        return max([nadds(e) for e in exprs], default=0)
+    def _compose(cls, expr, basextr):
+        return split(expr.args, lambda a: a in basextr)[0]
+
+
+class GeneratorDerivative(Generator):
 
     @classmethod
-    def _search(cls, expr, n, c=0):
-        assert n >= c >= 0
-        if q_leaf(expr) or expr.is_Pow:
-            return []
-        elif expr.is_Mul:
-            if c == n:
-                return [expr]
-            else:
-                return flatten([cls._search(a, n, c+1) for a in expr.args])
+    def _search(cls, expr, *args):
+        if isinstance(expr, EvalDerivative) and not expr.base.is_Function:
+            return expr.args
         else:
-            return flatten([cls._search(a, n, c) for a in expr.args])
+            return flatten(e for e in [cls._search(a) for a in expr.args] if e)
 
     @classmethod
-    def _uxmap_derivatives(cls, exprs, exclude, maxalias, make, n):
-        mapper = Uxmapper()
-        for e in exprs:
-            for i in cls._search(e, n):
-                if i.free_symbols & exclude:
-                    continue
+    def _compose(cls, expr, *args):
+        return split_coeff(expr)[1]
 
-                key = lambda a: a.is_Add
-                terms, others = split(i.args, key)
 
-                if maxalias:
-                    # Treat `e` as an FD expression and pull out the derivative
-                    # coefficient from `i`
-                    # Note: typically derivative coefficients are numbers, but
-                    # sometimes they could be provided in symbolic form through an
-                    # arbitrary Function.  In the latter case, we rely on the
-                    # heuristic that such Function's basically never span the whole
-                    # grid, but rather a single Grid dimension (e.g., `c[z, n]` for a
-                    # stencil of diameter `n` along `z`)
-                    if e.grid is not None and terms:
-                        key = partial(maybe_coeff_key, e.grid)
-                        others, more_terms = split(others, key)
-                        terms += more_terms
-
-                mapper.add(i, make, terms)
-
-        return mapper
+class GeneratorDerivativeCompounds(GeneratorDerivative):
 
     @classmethod
-    def generate(cls, exprs, exclude, maxalias=False):
-        counter = generator()
-        make = lambda: Symbol(name='dummy%d' % counter())
+    def _basextr(cls, exprs, exclude, make):
+        basextr = cls.__base__.generate(exprs, exclude, make)
 
-        for n in range(cls._max_deriv_order(exprs)):
-            yield lambda i: cls._uxmap_derivatives(i, exclude, maxalias, make, n)
+        # Find the largest de-indexified sub-expressions redundantly
+        # appearing across multiple exprs
+        mappers = [deindexify(e) for e in basextr.extracted]
+
+        # Sort by occurrences and costs
+        counter = Counter(flatten(m.keys() for m in mappers))
+        rank = sorted(counter, key=lambda e: (counter[e], estimate_cost(e)), reverse=True)
+
+        return rank
+
+    @classmethod
+    def _search(cls, expr, basextr):
+        found = cls.__base__._search(expr)
+
+        ret = []
+        for e in found:
+            mapper = deindexify(e)
+            for i in basextr:
+                if i in mapper:
+                    ret.extend(mapper[i])
+                    break
+
+        return ret
 
 
 def collect(extracted, ispace, minstorage, mingain):
@@ -817,14 +795,14 @@ def optimize_schedule_padding(schedule, meta, platform):
     for i in schedule:
         try:
             it = i.ispace.itintervals[-1]
-            if ROUNDABLE in meta.properties[it.dim]:
+            if it.dim is i.writeto[-1].dim and  ROUNDABLE in meta.properties[it.dim]:
                 vl = platform.simd_items_per_reg(meta.dtype)
                 ispace = i.ispace.add(Interval(it.dim, 0, it.interval.size % vl))
             else:
                 ispace = i.ispace
             processed.append(ScheduledAlias(i.pivot, i.writeto, ispace, i.aliaseds,
                                             i.indicess))
-        except (TypeError, KeyError):
+        except (TypeError, KeyError, IndexError):
             processed.append(i)
 
     return Schedule(*processed, dmapper=schedule.dmapper, rmapper=schedule.rmapper)
@@ -904,7 +882,7 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
             if any(i.is_Modulo for i in ispace.sub_iterators[d]):
                 properties[d] = normalize_properties(v, {SEQUENTIAL})
             elif d not in writeto.dimensions:
-                properties[d] = normalize_properties(v, {PARALLEL_IF_PVT})
+                properties[d] = normalize_properties(v, {PARALLEL_IF_PVT}) - {ROUNDABLE}
 
         # Finally, build the alias Cluster
         clusters.append(Cluster(expression, ispace, dspace, meta.guards, properties))
@@ -1259,13 +1237,28 @@ def cit(ispace0, ispace1):
     return tuple(found)
 
 
-def maybe_coeff_key(grid, expr):
+def split_coeff(expr):
+    """
+    Split potential derivative coefficients and arguments into two groups.
+    """
+    # TODO: Once we'll be able to keep Derivative intact down to this point,
+    # we won't need neither `split_coeff` nor `maybe_coeff` anymore
+    grids = {getattr(i.function, 'grid', None) for i in expr.free_symbols} - {None}
+    if len(grids) != 1:
+        return [], None
+    grid = grids.pop()
+    return split(expr.args, partial(maybe_coeff, grid))
+
+
+def maybe_coeff(grid, expr):
     """
     True if `expr` could be the coefficient of an FD derivative, False otherwise.
     """
     if expr.is_Number:
         return True
     indexeds = [i for i in expr.free_symbols if i.is_Indexed]
+    if not indexeds:
+        return True
     return any(not set(grid.dimensions) <= set(i.function.dimensions) for i in indexeds)
 
 
@@ -1287,3 +1280,41 @@ def wset(exprs):
     """
     return {i.function for i in flatten([e.free_symbols for e in as_tuple(exprs)])
             if i.function.is_AbstractFunction}
+
+
+def deindexify(expr):
+    """
+    Strip away Indexed and indices from an expression, turning them into Functions.
+    This means that e.g. `deindexify(f[x+2]*3) == deindexify(f[x-4]*3) == f(x)*3`.
+    This function returns a mapper that binds the de-indexified sub-expressions to
+    the original counterparts.
+    """
+    return _deindexify(expr)[1]
+
+
+@singledispatch
+def _deindexify(expr):
+    args = []
+    mapper = defaultdict(list)
+    for a in expr.args:
+        arg, m = _deindexify(a)
+        args.append(arg)
+        for k, v in m.items():
+            mapper[k].extend(v)
+
+    rexpr = rebuild_if_untouched(expr, args)
+    mapper[rexpr] = [expr]
+
+    return rexpr, mapper
+
+
+@_deindexify.register(sympy.Number)
+@_deindexify.register(sympy.Symbol)
+@_deindexify.register(sympy.Function)
+def _(expr):
+    return expr, {}
+
+
+@_deindexify.register(Indexed)
+def _(expr):
+    return expr.function, {}
