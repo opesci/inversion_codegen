@@ -149,17 +149,16 @@ class DeviceAdvOperator(DeviceOperatorMixin, CoreOperator):
         clusters = cire(clusters, 'invariants', sregistry, options, platform)
         clusters = Lift().process(clusters)
 
-        # Reduce flops (potential arithmetic alterations)
+        # Reduce flops
         clusters = extract_increments(clusters, sregistry)
         clusters = cire(clusters, 'sops', sregistry, options, platform)
         clusters = factorize(clusters)
         clusters = optimize_pows(clusters)
 
         # The previous passes may have created fusion opportunities
-        #TODO: UPDATE DEVITOPRO!!!
         clusters = fuse(clusters)
 
-        # Reduce flops (no arithmetic alterations)
+        # Reduce flops
         clusters = cse(clusters, sregistry)
 
         return clusters
