@@ -8,11 +8,11 @@ from sympy.core.evalf import evalf_table
 from cached_property import cached_property
 from devito.finite_differences.tools import make_shift_x0
 from devito.logger import warning
-from devito.tools import filter_ordered, flatten
+from devito.tools import filter_ordered, flatten, split
 from devito.types.lazy import Evaluable
 from devito.types.utils import DimensionTuple
 
-__all__ = ['Differentiable']
+__all__ = ['Differentiable', 'EvalDerivative']
 
 
 class Differentiable(sympy.Expr, Evaluable):
@@ -300,6 +300,11 @@ class DifferentiableOp(Differentiable):
     __sympy_class__ = None
 
     def __new__(cls, *args, **kwargs):
+        # Do not re-evaluate if any of the args is an EvalDerivative,
+        # since the integrity of these objects must be preserved
+        if any(isinstance(i, EvalDerivative) for i in args):
+            kwargs['evaluate'] = False
+
         obj = cls.__base__.__new__(cls, *args, **kwargs)
 
         # Unfortunately SymPy may build new sympy.core objects (e.g., sympy.Add),
@@ -364,9 +369,30 @@ class DifferentiableFunction(DifferentiableOp):
 class Add(DifferentiableOp, sympy.Add):
     __sympy_class__ = sympy.Add
 
+    def __new__(cls, *args, **kwargs):
+        # Flatten e.g. Add(Add(...), ...) due to unevaluation of ops over EvalDerivative
+        nested, others = split(args, lambda e: isinstance(e, Add))
+        args = flatten(e.args for e in nested) + list(others)
+
+        return super().__new__(cls, *args, **kwargs)
+
 
 class Mul(DifferentiableOp, sympy.Mul):
     __sympy_class__ = sympy.Mul
+
+    def __new__(cls, *args, **kwargs):
+        # A DifferentiableOp may not trigger evaluation upon construction
+        # (e.g., if an EvalDerivative is present among the arguments)
+        # So we treat some special cases here
+
+        # a*0 -> 0
+        if any(i == 0 for i in args):
+            return sympy.S.Zero
+
+        # a*1 -> a
+        args = [i for i in args if i != 1]
+
+        return super().__new__(cls, *args, **kwargs)
 
     @property
     def _gather_for_diff(self):
@@ -416,7 +442,24 @@ class Mod(DifferentiableOp, sympy.Mod):
 
 
 class EvalDerivative(DifferentiableOp, sympy.Add):
-    __sympy_class__ = sympy.Add
+
+    #TODO: NECESSARY??
+    _op_priority = Differentiable._op_priority + 1.
+
+    is_commutative = True
+
+    def __new__(cls, *args, base=None, **kwargs):
+        kwargs['evaluate'] = False
+        obj = sympy.Add.__new__(cls, *args, **kwargs)
+        obj.base = base
+        return obj
+
+    @property
+    def func(self):
+        return lambda *a, **kw: EvalDerivative(*a, base=self.base, **kw)
+
+    def _new_rawargs(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
 
 
 class diffify(object):
@@ -496,6 +539,9 @@ def diff2sympy(expr):
             return obj.__sympy_class__(*args, evaluate=False), True
         except AttributeError:
             # Not of type DifferentiableOp
+            pass
+        except TypeError:
+            # Won't lower (e.g., EvalDerivative)
             pass
         if flag:
             return obj.func(*args, evaluate=False), True
