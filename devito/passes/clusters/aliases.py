@@ -1264,8 +1264,18 @@ def nredundants(ispace, expr):
     could be a Dimension that does not appear in the free symbols while defining
     a non-redundant iteration space (e.g., an IncrDimension stemming from blocking).
     """
-    return (len({i.dim.root for i in ispace}) -
-            len({i.root for i in expr.free_symbols if i.is_Dimension}))
+    iterated = {i.dim for i in ispace}
+    used = {i for i in expr.free_symbols if i.is_Dimension}
+
+    # "Short" dimensions won't count
+    key = lambda d: d.is_Sub and d.local
+    iterated = {d for d in iterated if not key(d)}
+    used = {d for d in used if not key(d)}
+
+    iterated = {d.root for d in iterated}
+    used = {d.root for d in used}
+
+    return len(iterated) - (len(used))
 
 
 def wset(exprs):
