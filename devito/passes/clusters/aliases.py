@@ -357,8 +357,10 @@ class CireSops(CireTransformer):
                         break
             return ret
 
-        for i in sorted(grank, reverse=True)[:2]:
-            cbk_search_i = lambda e: cbk_search2(e, grank[i])
+        candidates = sorted(grank, reverse=True)[:2]
+        for i in candidates:
+            lower_pri_elems = flatten([grank[j] for j in candidates if j != i])
+            cbk_search_i = lambda e: cbk_search2(e, grank[i] + lower_pri_elems)
             yield self._do_generate(exprs, exclude, cbk_search_i, cbk_compose)
 
     def _lookup_key(self, c):
