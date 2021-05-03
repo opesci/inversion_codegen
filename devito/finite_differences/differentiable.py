@@ -458,6 +458,9 @@ class EvalDerivative(DifferentiableOp, sympy.Add):
     def __new__(cls, *args, base=None, **kwargs):
         kwargs['evaluate'] = False
 
+        # a+0 -> a
+        args = [i for i in args if i != 0]
+
         obj = super().__new__(cls, *args, **kwargs)
 
         try:
