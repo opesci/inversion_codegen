@@ -370,9 +370,16 @@ class Add(DifferentiableOp, sympy.Add):
     __sympy_class__ = sympy.Add
 
     def __new__(cls, *args, **kwargs):
-        # Flatten e.g. Add(Add(...), ...) due to unevaluation of ops over EvalDerivative
+        # Here, often we get `evaluate=False` to prevent SymPy evaluation (e.g.,
+        # when `cls==EvalDerivative`), but in all cases we at least apply a small
+        # sets of basic optimizations
+
+        # (a+b)+c -> a+b+c (flattening)
         nested, others = split(args, lambda e: isinstance(e, Add))
         args = flatten(e.args for e in nested) + list(others)
+
+        # a+0 -> a
+        args = [i for i in args if i != 0]
 
         return super().__new__(cls, *args, **kwargs)
 
@@ -450,8 +457,19 @@ class EvalDerivative(DifferentiableOp, sympy.Add):
 
     def __new__(cls, *args, base=None, **kwargs):
         kwargs['evaluate'] = False
-        obj = sympy.Add.__new__(cls, *args, **kwargs)
-        obj.base = base
+
+        obj = super().__new__(cls, *args, **kwargs)
+
+        try:
+            obj.base = base
+        except AttributeError:
+            # This might happen if e.g. one attempts a (re)construction with
+            # one sole argument. The (re)constructed EvalDerivative degenerates
+            # to an object of different type, in classic SymPy style. That's fine
+            assert len(args) <= 1
+            assert not obj.is_Add
+            return obj
+
         return obj
 
     @property
@@ -459,6 +477,7 @@ class EvalDerivative(DifferentiableOp, sympy.Add):
         return lambda *a, **kw: EvalDerivative(*a, base=self.base, **kw)
 
     def _new_rawargs(self, *args, **kwargs):
+        kwargs.pop('is_commutative', None)
         return self.func(*args, **kwargs)
 
 
