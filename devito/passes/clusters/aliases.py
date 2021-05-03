@@ -14,8 +14,7 @@ from devito.ir import (SEQUENTIAL, PARALLEL_IF_PVT, ROUNDABLE, DataSpace,
                        relax_properties)
 from devito.passes.clusters.utils import timed_pass
 from devito.symbolics import (Uxmapper, compare_ops, estimate_cost, q_constant,
-                              rebuild_if_untouched, retrieve_indexed,
-                              search, uxreplace)
+                              reuse_if_untouched, retrieve_indexed, search, uxreplace)
 from devito.tools import as_mapper, as_tuple, flatten, frozendict, generator, split
 from devito.types import (Array, TempFunction, Eq, Symbol, ModuloDimension,
                           CustomDimension, IncrDimension, Indexed)
@@ -1295,7 +1294,7 @@ def _deindexify(expr):
         for k, v in m.items():
             mapper[k].extend(v)
 
-    rexpr = rebuild_if_untouched(expr, args)
+    rexpr = reuse_if_untouched(expr, args)
     if rexpr is not expr:
         mapper[rexpr] = [expr]
 
