@@ -384,9 +384,7 @@ class Add(DifferentiableOp, sympy.Add):
         args = [i for i in args if i != 0]
 
         # Reorder for homogeneity with pure SymPy types
-        #TODO: DROP if kwargs...??
-        if kwargs.get('evaluate', True):
-            _addsort(args)
+        _addsort(args)
 
         return super().__new__(cls, *args, **kwargs)
 
@@ -407,9 +405,7 @@ class Mul(DifferentiableOp, sympy.Mul):
         args = [i for i in args if i != 1]
 
         # Reorder for homogeneity with pure SymPy types
-        #TODO: DROP if kwargs...??
-        if kwargs.get('evaluate', True):
-            _mulsort(args)
+        _mulsort(args)
 
         return super().__new__(cls, *args, **kwargs)
 
@@ -461,9 +457,6 @@ class Mod(DifferentiableOp, sympy.Mod):
 
 
 class EvalDerivative(DifferentiableOp, sympy.Add):
-
-    #TODO: NECESSARY??
-    _op_priority = Differentiable._op_priority + 1.
 
     is_commutative = True
 
