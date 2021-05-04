@@ -2136,6 +2136,36 @@ class TestAliases(object):
         op1.apply(time_M=2, u=u1)
         assert np.isclose(norm(u), norm(u1), rtol=1e-5)
 
+    def test_maxpar_option_v2(self):
+        """
+        Another test for the compiler option `cire-maxpar=True`.
+        """
+        grid = Grid(shape=(10, 10, 10))
+
+        f = Function(name='f', grid=grid, space_order=4)
+        u = TimeFunction(name='u', grid=grid, space_order=4, save=10)
+        u1 = TimeFunction(name="u", grid=grid, space_order=4, save=10)
+
+        f.data[:] = 0.0012
+        u.data[0, :] = 1.3
+        u1.data[0, :] = 1.3
+
+        eq = Eq(u.forward, f*u.dx.dx)
+
+        op0 = Operator(eq, opt='noop')
+        op1 = Operator(eq, opt=('advanced', {'cire-maxpar': True}))
+
+        # Check code generation
+        xs, ys, zs = self.get_params(op1, 'x0_blk0_size', 'y0_blk0_size', 'z_size')
+        arrays = [i for i in FindSymbols().visit(op1._func_table['bf0']) if i.is_Array]
+        assert len(arrays) == 1
+        self.check_array(arrays[0], ((2, 2), (0, 0), (0, 0)), (xs+4, ys, zs))
+
+        # Check numerical output
+        op0.apply(time_M=2)
+        op1.apply(time_M=2, u=u1)
+        assert np.isclose(norm(u), norm(u1), rtol=1e-10)
+
     @pytest.mark.parametrize('rotate', [False, True])
     def test_blocking_options(self, rotate):
         """

@@ -625,7 +625,9 @@ def lower_aliases(aliases, meta, maxpar):
 
             assert i.stamp >= interval.stamp
 
-            if not (writeto or interval != interval.zero() or maxpar):
+            if not (writeto or
+                    interval != interval.zero() or
+                    (maxpar and SEQUENTIAL not in meta.properties.get(i.dim))):
                 # The alias doesn't require a temporary Dimension along i.dim
                 intervals.append(i)
                 continue
