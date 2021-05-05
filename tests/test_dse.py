@@ -2254,7 +2254,7 @@ class TestAliases(object):
         kwargs = {i.name: i for i in ofuncs}
         # Check numerical output of op1
         op1(time_M=1, u=u1, nthreads=nthreads, **kwargs)
-        assert np.allclose(u.data, u1.data, rtol=10e-8)
+        assert np.allclose(u.data, u1.data, rtol=10e-5)
 
         # Prepare to run op2
         ofuncs = [i.make(grid.shape) for i in op2.temporaries]
@@ -2262,7 +2262,7 @@ class TestAliases(object):
         kwargs = {i.name: i for i in ofuncs}
         # Check numerical output of op2
         op2(time_M=1, u=u2, **kwargs)
-        assert np.allclose(u.data, u2.data, rtol=10e-8)
+        assert np.allclose(u.data, u2.data, rtol=10e-5)
 
         # Again op2, but now with automatically derived shape
         ofuncs = [i.make(**u3._arg_values()) for i in op2.temporaries]
@@ -2270,7 +2270,7 @@ class TestAliases(object):
         kwargs = {i.name: i for i in ofuncs}
         # Check numerical output of op2
         op2(time_M=1, u=u3, **kwargs)
-        assert np.allclose(u.data, u3.data, rtol=10e-8)
+        assert np.allclose(u.data, u3.data, rtol=10e-5)
 
     @pytest.mark.parametrize('rotate', [False, True])
     def test_grouping_fallback(self, rotate):
