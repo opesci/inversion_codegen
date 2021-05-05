@@ -6,7 +6,7 @@ from devito.ir.iet import (Expression, List, Prodder, FindNodes, FindSymbols,
 from devito.logger import warning
 from devito.passes.iet.engine import iet_pass
 from devito.symbolics import INT
-from devito.tools import split
+from devito.tools import split, is_integer
 
 __all__ = ['avoid_denormals', 'hoist_prodders', 'relax_incr_dimensions', 'is_on_device']
 
