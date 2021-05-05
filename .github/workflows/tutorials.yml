@@ -28,7 +28,7 @@ jobs:
           tutos-ubuntu-gcc-py37,
           tutos-osx-gcc-py37,
           tutos-osx-clang-py37,
-          tutos-docker-gcc-py36
+          tutos-docker-gcc-py37
           ]
 
         include:
@@ -47,7 +47,7 @@ jobs:
             compiler: clang
             language: "C"
 
-          - name: tutos-docker-gcc-py36
+          - name: tutos-docker-gcc-py37
             os: ubuntu-latest
             compiler: gcc
             language: "openmp"
@@ -57,7 +57,7 @@ jobs:
       uses: actions/checkout@v1
 
     - name: Set up Python 3.7
-      if: matrix.name != 'tutos-docker-gcc-py36'
+      if: matrix.name != 'tutos-docker-gcc-py37'
       uses: actions/setup-python@v1
       with:
         python-version: 3.7
@@ -72,13 +72,13 @@ jobs:
         fi
 
     - name: Build docker image
-      if: matrix.name == 'tutos-docker-gcc-py36'
+      if: matrix.name == 'tutos-docker-gcc-py37'
       run: |
           docker build . --file docker/Dockerfile --tag devito_img
 
     - name: Set run prefix
       run: |
-          if [ "${{ matrix.name }}" == 'tutos-docker-gcc-py36' ]; then
+          if [ "${{ matrix.name }}" == 'tutos-docker-gcc-py37' ]; then
               echo "::set-output name=RUN_CMD::docker run --rm --name testrun devito_img"
           else
               echo "::set-output name=RUN_CMD::"
@@ -86,7 +86,7 @@ jobs:
       id: set-run
 
     - name: Install dependencies
-      if: matrix.name != 'tutos-docker-gcc-py36'
+      if: matrix.name != 'tutos-docker-gcc-py37'
       run: |
         python -m pip install --upgrade pip
         pip install -e .
@@ -117,7 +117,7 @@ jobs:
     - name: Compiler notebooks
       run: |
         ${{ steps.set-run.outputs.RUN_CMD }} py.test --nbval --cov . --cov-config=.coveragerc --cov-report=xml:comp_coverage.xml examples/compiler
-        
+
     - name: Finance notebooks
       run: |
         ${{ steps.set-run.outputs.RUN_CMD }} py.test --nbval --cov . --cov-config=.coveragerc --cov-report=xml:comp_coverage.xml examples/finance
@@ -131,7 +131,7 @@ jobs:
         ${{ steps.set-run.outputs.RUN_CMD }} py.test --nbval --cov . --cov-config=.coveragerc --cov-report=xml:comp_coverage.xml examples/seismic/abc_methods
 
     - name: Upload coverage to Codecov
-      if: matrix.name != 'tutos-docker-gcc-py36'
+      if: matrix.name != 'tutos-docker-gcc-py37'
       uses: codecov/codecov-action@v1.0.6
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
