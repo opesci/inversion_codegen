@@ -860,7 +860,11 @@ class DiscreteFunction(AbstractFunction, ArgProvider, Differentiable):
             warning("Data type %s of runtime value `%s` does not match the "
                     "Function data type %s" % (key.dtype, self.name, self.dtype))
         for i, s in zip(self.dimensions, key.shape):
-            i._arg_check(args, s, intervals[i])
+            if i not in intervals and i.is_Sub:
+                interval = intervals[i.parent]
+            else: 
+                interval = intervals[i]
+            i._arg_check(args, s, interval)
 
     def _arg_as_ctype(self, args, alias=None):
         key = alias or self

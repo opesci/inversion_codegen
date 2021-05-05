@@ -478,7 +478,7 @@ class Operator(Callable):
             p._arg_check(args, self._dspace[p])
         for d in self.dimensions:
             if d.is_Derived:
-                d._arg_check(args, self._dspace[p])
+                d._arg_check(args, self._dspace[d]) # BUG?
 
         # Turn arguments into a format suitable for the generated code
         # E.g., instead of NumPy arrays for Functions, the generated code expects

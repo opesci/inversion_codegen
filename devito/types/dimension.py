@@ -11,6 +11,8 @@ from devito.tools import Pickable, dtype_to_cstr, is_integer
 from devito.types.args import ArgProvider
 from devito.types.basic import Symbol, DataSymbol, Scalar
 
+import inspect
+
 __all__ = ['Dimension', 'SpaceDimension', 'TimeDimension', 'DefaultDimension',
            'CustomDimension', 'SteppingDimension', 'SubDimension', 'ConditionalDimension',
            'dimensions', 'ModuloDimension', 'IncrDimension']
@@ -671,6 +673,20 @@ class SubDimension(DerivedDimension):
     _pickle_args = DerivedDimension._pickle_args +\
         ['symbolic_min', 'symbolic_max', 'thickness', 'local']
     _pickle_kwargs = []
+
+    def _arg_check(self, *args):
+        if len(args) == 2:
+            # Comes from Operator._prepare_arguments
+            dargs, interval = args
+        else:
+            # Comes from DiscreteFunction._arg_check
+            dargs, size, interval = args
+            if not interval.is_Null:
+                test0 = self._interval.subs(dargs).start + interval.lower < 0
+                test1 = self._interval.subs(dargs).end + interval.upper > size
+                if test0 or test1:
+                    raise ValueError(' OOB access\n')
+        return
 
 
 class ConditionalDimension(DerivedDimension):
