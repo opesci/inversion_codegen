@@ -1084,7 +1084,7 @@ class TestAliases(object):
         assert len(arrays) == 7
         assert all(i._mem_heap and not i._mem_external for i in arrays)
 
-        trees = [i for i in retrieve_iteration_tree(op1)]
+        trees = [i for i in retrieve_iteration_tree(op1) if len(i) > 1]
 
         assert len(trees) == 3
 
@@ -1870,7 +1870,7 @@ class TestAliases(object):
         op1 = Operator(eq, opt=('advanced', {'cire-maxpar': True, 'cire-rotate': rotate}))
 
         # Check code generation
-        trees = [i for i in retrieve_iteration_tree(op1)]
+        trees = [i for i in retrieve_iteration_tree(op1) if len(i) > 1]
 
         assert len(trees) == 2
         assert trees[0][1] is trees[1][1]

@@ -1,9 +1,9 @@
 import numpy as np
 import cgen as c
-from sympy import Max
+from sympy import And, Max
 
 from devito.data import FULL
-from devito.ir import (DummyEq, Dereference, Expression, ExpressionBundle,
+from devito.ir import (DummyEq, Conditional, Dereference, Expression, ExpressionBundle,
                        List, ParallelTree, Prodder, FindSymbols, FindNodes,
                        VECTORIZED, Transformer, IsPerfectIteration, filter_iterations,
                        retrieve_iteration_tree)
@@ -272,6 +272,9 @@ class PragmaShmTransformer(PragmaSimdTransformer):
 
         return self.Region(partree)
 
+    def _make_guard(self, parregion):
+        return parregion
+
     def _make_nested_partree(self, partree):
         # Apply heuristic
         if self.nhyperthreads <= self.nested:
@@ -340,6 +343,9 @@ class PragmaShmTransformer(PragmaSimdTransformer):
 
             # Wrap within a parallel region
             parregion = self._make_parregion(partree, parrays)
+
+            # Protect the parallel region if necessary
+            parregion = self._make_guard(parregion)
 
             mapper[root] = parregion
 
@@ -415,6 +421,33 @@ class PragmaDeviceAwareTransformer(DeviceAwareMixin, PragmaShmTransformer):
             return partree
         else:
             return super()._make_parregion(partree, *args)
+
+    def _make_guard(self, parregion, *args):
+        partrees = FindNodes(ParallelTree).visit(parregion)
+        if not any(isinstance(i.root, self.DeviceIteration) for i in partrees):
+            return super()._make_guard(parregion, *args)
+
+        cond = []
+        # There must be at least one iteration or potential crash
+        if not parregion.is_Affine:
+            trees = retrieve_iteration_tree(parregion.root)
+            tree = trees[0][:parregion.ncollapsed]
+            cond.extend([i.symbolic_size > 0 for i in tree])
+
+        # SparseFunctions may occasionally degenerate to zero-size arrays. In such
+        # a case, a copy-in produces a `nil` pointer on the device. To fire up a
+        # parallel loop we must ensure none of the SparseFunction pointers are `nil`
+        symbols = FindSymbols().visit(parregion)
+        sfs = [i for i in symbols if i.is_SparseFunction]
+        if sfs:
+            size = [prod(f._C_get_field(FULL, d).size for d in f.dimensions) for f in sfs]
+            cond.extend([i > 0 for i in size])
+
+        # Combine all cond elements
+        if cond:
+            parregion = List(body=[Conditional(And(*cond), parregion)])
+
+        return parregion
 
     def _make_nested_partree(self, partree):
         if isinstance(partree.root, self.DeviceIteration):

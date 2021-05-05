@@ -336,7 +336,7 @@ def test_cache_blocking_imperfect_nest_v2(blockinner):
     op2 = Operator(eq, opt=('advanced-fsg', {'blockinner': blockinner}))
 
     # First, check the generated code
-    trees = [i for i in retrieve_iteration_tree(op2)]
+    trees = [i for i in retrieve_iteration_tree(op2) if len(i) > 1]
 
     assert len(trees) == 2
     assert len(trees[0]) == len(trees[1])
