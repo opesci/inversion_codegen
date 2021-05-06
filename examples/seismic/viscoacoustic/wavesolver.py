@@ -216,7 +216,7 @@ class ViscoacousticWaveSolver(object):
                                           dt=kwargs.pop('dt', self.dt), **kwargs)
         return srca, pa, va, summary
 
-    def jacobian_adjoint(self, rec, p, pa=None, grad=None, r=None, model=None,
+    def jacobian_adjoint(self, rec, p, pa=None, grad=None, r=None, va=None, model=None,
                          checkpointing=False, **kwargs):
         """
         Gradient modelling function for computing the adjoint of the
@@ -235,6 +235,8 @@ class ViscoacousticWaveSolver(object):
             Stores the gradient field.
         r : TimeFunction, optional
             The computed attenuation memory variable.
+        va : VectorTimeFunction, optional
+            The computed particle velocity.
         model : Model, optional
             Object containing the physical parameters.
         vp : Function or float, optional
@@ -262,6 +264,12 @@ class ViscoacousticWaveSolver(object):
         kwargs.update(model.physical_params(**kwargs))
 
         if checkpointing:
+            if self.time_order == 1:
+                v = VectorTimeFunction(name="v", grid=self.model.grid,
+                                       time_order=self.time_order,
+                                       space_order=self.space_order)
+                kwargs.update({k.name: k for k in v})
+
             p = TimeFunction(name='p', grid=self.model.grid,
                              time_order=self.time_order, space_order=self.space_order,
                              staggered=NODE)
@@ -269,18 +277,40 @@ class ViscoacousticWaveSolver(object):
             r = TimeFunction(name="r", grid=self.model.grid, time_order=self.time_order,
                              space_order=self.space_order, staggered=NODE)
 
-            cp = DevitoCheckpoint([p, r])
+            l = [p, r] + v.values() if self.time_order == 1 else [p, r]
+            cp = DevitoCheckpoint(l)
             n_checkpoints = None
             wrap_fw = CheckpointOperator(self.op_fwd(save=False),
                                          src=self.geometry.src, p=p, r=r, dt=dt, **kwargs)
-            wrap_rev = CheckpointOperator(self.op_grad(save=False), p=p, pa=pa, rec=rec,
-                                          dt=dt, grad=grad, **kwargs)
+
+            ra = TimeFunction(name="ra", grid=self.model.grid, time_order=self.time_order,
+                              space_order=self.space_order, staggered=NODE)
+
+            if self.time_order == 1:
+                for i in {k.name: k for k in v}.keys():
+                    kwargs.pop(i)
+                va = VectorTimeFunction(name="va", grid=self.model.grid,
+                                        time_order=self.time_order,
+                                        space_order=self.space_order)
+                kwargs.update({k.name: k for k in va})
+                kwargs['time_m'] = 0
+
+            wrap_rev = CheckpointOperator(self.op_grad(save=False), p=p, pa=pa, r=ra,
+                                          rec=rec, dt=dt, grad=grad, **kwargs)
 
             # Run forward
-            wrp = Revolver(cp, wrap_fw, wrap_rev, n_checkpoints, rec.data.shape[0]-2)
+            wrp = Revolver(cp, wrap_fw, wrap_rev, n_checkpoints,
+                           rec.data.shape[0] - (1 if self.time_order == 1 else 2))
             wrp.apply_forward()
             summary = wrp.apply_reverse()
         else:
+            if self.time_order == 1:
+                va = va or VectorTimeFunction(name="va", grid=self.model.grid,
+                                              time_order=self.time_order,
+                                              space_order=self.space_order)
+                kwargs.update({k.name: k for k in va})
+                kwargs['time_m'] = 0
+
             # Memory variable:
             r = r or TimeFunction(name="r", grid=self.model.grid,
                                   time_order=self.time_order,
@@ -291,8 +321,8 @@ class ViscoacousticWaveSolver(object):
 
         return grad, summary
 
-    def jacobian(self, dmin, src=None, rec=None, p=None, P=None, rp=None, rP=None,
-                 model=None, **kwargs):
+    def jacobian(self, dmin, src=None, rec=None, p=None, P=None, rp=None, rP=None, v=None,
+                 dv=None, model=None, **kwargs):
         """
         Linearized Born modelling function that creates the necessary
         data objects for running an adjoint modelling operator.
@@ -311,6 +341,10 @@ class ViscoacousticWaveSolver(object):
             The computed attenuation memory variable.
         rP : TimeFunction, optional
             The computed attenuation memory variable.
+        v : VectorTimeFunction, optional
+            The computed particle velocity.
+        dv : VectorTimeFunction, optional
+            The computed particle velocity.
         model : Model, optional
             Object containing the physical parameters.
         vp : Function or float, optional
@@ -341,6 +375,17 @@ class ViscoacousticWaveSolver(object):
         rP = rP or TimeFunction(name='rP', grid=self.model.grid,
                                 time_order=self.time_order,
                                 space_order=self.space_order, staggered=NODE)
+
+        if self.time_order == 1:
+            v = v or VectorTimeFunction(name="v", grid=self.model.grid,
+                                        time_order=self.time_order,
+                                        space_order=self.space_order)
+            kwargs.update({k.name: k for k in v})
+
+            dv = dv or VectorTimeFunction(name="dv", grid=self.model.grid,
+                                          time_order=self.time_order,
+                                          space_order=self.space_order)
+            kwargs.update({k.name: k for k in dv})
 
         model = model or self.model
         # Pick vp and physical parameters from model unless explicitly provided
