@@ -1,8 +1,9 @@
-FROM python:3.6
+FROM python:3.7
 
 RUN apt-get update && apt-get install -y -q \
     mpich \
-    libmpich-dev
+    libmpich-dev \
+    libgl1-mesa-glx
 
 ADD ./requirements.txt /app/requirements.txt
 ADD ./requirements-optional.txt /app/requirements-optional.txt
