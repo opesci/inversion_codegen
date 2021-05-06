@@ -130,10 +130,10 @@ jobs:
       run: |
         ${{ steps.set-run.outputs.RUN_CMD }} py.test --nbval --cov . --cov-config=.coveragerc --cov-report=xml:comp_coverage.xml examples/seismic/abc_methods
 
-    - name: Upload coverage to Codecov
-      if: matrix.name != 'tutos-docker-gcc-py37'
-      uses: codecov/codecov-action@v1.0.6
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        name: ${{ matrix.name }}
-        file: ./*_coverage.xml
+#     - name: Upload coverage to Codecov
+#       if: matrix.name != 'tutos-docker-gcc-py37'
+#       uses: codecov/codecov-action@v1.0.6
+#       with:
+#         token: ${{ secrets.CODECOV_TOKEN }}
+#         name: ${{ matrix.name }}
+#         file: ./*_coverage.xml
