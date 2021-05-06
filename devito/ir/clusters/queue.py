@@ -1,10 +1,10 @@
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from itertools import groupby
 
 from devito.ir.support import Scope
 from devito.tools import as_tuple, flatten
 
-__all__ = ['Queue', 'QueueStateful', 'Context']
+__all__ = ['Queue', 'QueueStateful']
 
 
 class Queue(object):
@@ -70,7 +70,7 @@ class Queue(object):
                 processed.extend(list(g))
             else:
                 # Apply callback
-                _clusters = self.callback(list(g), pfx)
+                _clusters = self.callback(list(g), pfx, **kwargs)
                 # Recursion
                 processed.extend(self._process_fatd(_clusters, level + 1, **kwargs))
 
@@ -117,24 +117,3 @@ class QueueStateful(Queue):
             for i in prefix:
                 properties[i.dim].update(v.get(i.dim, set()))
         return properties
-
-
-class Context(Queue):
-
-    def __init__(self, target):
-        super().__init__()
-        self.target = target
-
-    def process(self, clusters):
-        mapper = OrderedDict()
-        mapper[None] = self.target
-        self._process_fdta(clusters, 1, mapper=mapper)
-        return mapper
-
-    def callback(self, clusters, prefix, mapper=None):
-        assert mapper is not None
-
-        if self.target in clusters:
-            mapper[tuple(prefix)] = tuple(clusters)
-
-        return clusters

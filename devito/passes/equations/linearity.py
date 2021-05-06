@@ -4,7 +4,7 @@ from itertools import product
 
 import sympy
 
-from devito.symbolics import rebuild_if_untouched
+from devito.symbolics import reuse_if_untouched
 from devito.tools import as_mapper, flatten, split, timed_pass
 
 __all__ = ['collect_derivatives']
@@ -82,7 +82,7 @@ def aggregate_coeffs(expr, mapper, nn_derivs=None):
     nn_derivs = nn_derivs or mapper.get(expr)
 
     args = [aggregate_coeffs(a, mapper, nn_derivs) for a in expr.args]
-    expr = rebuild_if_untouched(expr, args, evaluate=True)
+    expr = reuse_if_untouched(expr, args, evaluate=True)
 
     return expr
 
@@ -98,7 +98,7 @@ def _(expr, mapper, nn_derivs=None):
 def _(expr, mapper, nn_derivs=None):
     # Opens up a new derivative scope, so do not propagate `nn_derivs`
     args = [aggregate_coeffs(a, mapper) for a in expr.args]
-    expr = rebuild_if_untouched(expr, args)
+    expr = reuse_if_untouched(expr, args)
 
     return expr
 
@@ -108,7 +108,7 @@ def _(expr, mapper, nn_derivs=None):
     nn_derivs = nn_derivs or mapper.get(expr)
 
     args = [aggregate_coeffs(a, mapper, nn_derivs) for a in expr.args]
-    expr = rebuild_if_untouched(expr, args)
+    expr = reuse_if_untouched(expr, args)
 
     # Separate arguments containing derivatives from those which do not
     hope_coeffs = []
@@ -167,7 +167,7 @@ def _(expr, mapper, nn_derivs=None):
 @singledispatch
 def factorize_derivatives(expr):
     args = [factorize_derivatives(a) for a in expr.args]
-    expr = rebuild_if_untouched(expr, args)
+    expr = reuse_if_untouched(expr, args)
 
     return expr
 
@@ -185,7 +185,7 @@ def _(expr):
 
     derivs, others = split(args, lambda a: isinstance(a, sympy.Derivative))
     if not derivs:
-        return expr
+        return reuse_if_untouched(expr, args)
 
     # Map by type of derivative
     # Note: `D0(a) + D1(b) == D(a + b)` <=> `D0` and `D1`'s metadata match,

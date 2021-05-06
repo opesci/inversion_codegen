@@ -20,10 +20,9 @@
     * `min-storage` (boolean, False): smaller working set size, less loop fusion
     * `cire-rotate` (boolean, False): smaller working set size, fewer parallel dimensions
     * `cire-maxpar` (boolean, False): bigger working set size, more parallelism
-    * `cire-maxalias` (boolean, False): bigger working set size, better flop count
     * `cire-ftemps` (boolean, False): give user control over the allocated temporaries
-    * `cire-mincost-sops` (int, 10): minimum cost of a sum-of-product candidate
-    * `cire-mincost-inv` (int, 50): minimum cost of a dimension-invariant candidate
+    * `cire-mingain` (int, 10): minimum gain to optimize away a redundant expression
+    * `cire-schedule` ((str, int), 'automatic'): scheduling strategy for derivatives
   * Device-specific:
     * `gpu-fit` (boolean, False): list of saved TimeFunctions that fit in the device memory
     * `gpu-direct` (boolean, False): generate code for optimized GPU-aware MPI
@@ -57,10 +56,9 @@
 | min-storage         | :heavy_check_mark:  |         :x:        |
 | cire-rotate         | :heavy_check_mark:  |         :x:        |
 | cire-maxpar         | :heavy_check_mark:  | :heavy_check_mark: |
-| cire-maxalias       | :heavy_check_mark:  | :heavy_check_mark: |
 | cire-ftemps         | :heavy_check_mark:  | :heavy_check_mark: |
-| cire-mincost-sops   | :heavy_check_mark:  | :heavy_check_mark: |
-| cire-mincost-inv    | :heavy_check_mark:  | :heavy_check_mark: |
+| cire-mingain        | :heavy_check_mark:  | :heavy_check_mark: |
+| cire-schedule       | :heavy_check_mark:  | :heavy_check_mark: |
 
 * Device-specific
 

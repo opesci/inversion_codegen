@@ -1,9 +1,9 @@
-from sympy import Add  # noqa
+from sympy import Add
 import numpy as np
 import pytest
 from cached_property import cached_property
 
-from conftest import skipif, EVAL  # noqa
+from conftest import skipif, EVAL, _R  # noqa
 from devito import (NODE, Eq, Inc, Constant, Function, TimeFunction, SparseTimeFunction,  # noqa
                     Dimension, SubDimension, ConditionalDimension, DefaultDimension, Grid,
                     Operator, norm, grad, div, dimensions, switchconfig, configuration,
@@ -81,21 +81,21 @@ def test_scheduling_after_rewrite():
     # Fancy use case with lots of temporaries
     (['Eq(tu.forward, tu.dx + 1)', 'Eq(tv.forward, tv.dx + 1)',
       'Eq(tw.forward, tv.dt.dx2.dy2 + 1)', 'Eq(tz.forward, tv.dt.dy2.dx2 + 2)'],
-     ['h_x**(-2)', 'h_y**(-2)', '1/h_x', '1/dt', '-r9*tv[t, x, y, z]',
-      '-r9*tv[t, x + 1, y, z] + r9*tv[t + 1, x + 1, y, z]',
-      '-r9*tv[t, x - 1, y, z] + r9*tv[t + 1, x - 1, y, z]',
-      '-r9*tv[t, x, y + 1, z] + r9*tv[t + 1, x, y + 1, z]',
-      '-r9*tv[t, x + 1, y + 1, z] + r9*tv[t + 1, x + 1, y + 1, z]',
-      '-r9*tv[t, x - 1, y + 1, z] + r9*tv[t + 1, x - 1, y + 1, z]',
-      '-r9*tv[t, x, y - 1, z] + r9*tv[t + 1, x, y - 1, z]',
-      '-r9*tv[t, x + 1, y - 1, z] + r9*tv[t + 1, x + 1, y - 1, z]',
-      '-r9*tv[t, x - 1, y - 1, z] + r9*tv[t + 1, x - 1, y - 1, z]',
-      '-r10*tu[t, x, y, z] + r10*tu[t, x + 1, y, z] + 1',
-      '-r10*tv[t, x, y, z] + r10*tv[t, x + 1, y, z] + 1',
-      'r11*(r0*r12 + r1*r12 - 2.0*r12*r2) + r11*(r12*r3 + r12*r4 - 2.0*r12*r5) - '
-      '2.0*r11*(r12*r6 + r12*r7 - 2.0*r12*(r8 + r9*tv[t + 1, x, y, z])) + 1',
-      'r12*(r0*r11 + r11*r3 - 2.0*r11*r6) + r12*(r1*r11 + r11*r4 - 2.0*r11*r7) - '
-      '2.0*r12*(r11*r2 + r11*r5 - 2.0*r11*(r8 + r9*tv[t + 1, x, y, z])) + 2']),
+     ['1/h_x', 'h_x**(-2)', 'h_y**(-2)', '1/dt', '-r11*tv[t, x, y, z]', '-2.0*r12',
+      '-2.0*r13', '-r11*tv[t, x + 1, y, z] + r11*tv[t + 1, x + 1, y, z]',
+      '-r11*tv[t, x - 1, y, z] + r11*tv[t + 1, x - 1, y, z]',
+      '-r11*tv[t, x, y + 1, z] + r11*tv[t + 1, x, y + 1, z]',
+      '-r11*tv[t, x + 1, y + 1, z] + r11*tv[t + 1, x + 1, y + 1, z]',
+      '-r11*tv[t, x - 1, y + 1, z] + r11*tv[t + 1, x - 1, y + 1, z]',
+      '-r11*tv[t, x, y - 1, z] + r11*tv[t + 1, x, y - 1, z]',
+      '-r11*tv[t, x + 1, y - 1, z] + r11*tv[t + 1, x + 1, y - 1, z]',
+      '-r11*tv[t, x - 1, y - 1, z] + r11*tv[t + 1, x - 1, y - 1, z]',
+      '-r14*tu[t, x, y, z] + r14*tu[t, x + 1, y, z] + 1',
+      '-r14*tv[t, x, y, z] + r14*tv[t, x + 1, y, z] + 1',
+      'r12*(r0*r13 + r1*r13 + r2*r8) + r12*(r13*r3 + r13*r4 + r5*r8) + '
+      'r9*(r13*r6 + r13*r7 + r8*(r10 + r11*tv[t + 1, x, y, z])) + 1',
+      'r13*(r0*r12 + r12*r3 + r6*r9) + r13*(r1*r12 + r12*r4 + r7*r9) + '
+      'r8*(r12*r2 + r12*r5 + r9*(r10 + r11*tv[t + 1, x, y, z])) + 2']),
 ])
 def test_cse(exprs, expected):
     """Test common subexpressions elimination."""
@@ -167,13 +167,13 @@ def test_pow_to_mul(expr, expected):
     ('Eq(t0, cos(fa*fb))', 101, True),
     ('Eq(t0, cos(fa[x]*fb[x]))', 101, True),
     ('Eq(t0, cos(t1*t2))', 101, True),
-    ('Eq(t0, cos(c*c))', 2, True),  # `cos(...constants...)` counts as 1
+    ('Eq(t0, cos(c*c))', 101, True),
     ('Eq(t0, t1**3)', 2, True),
     ('Eq(t0, t1**4)', 3, True),
-    ('Eq(t0, t2*t1**-1)', 26, True),
+    ('Eq(t0, t2*t1**-1)', 6, True),
     ('Eq(t0, t1**t2)', 50, True),
-    ('Eq(t0, 3.2/h_x)', 2, True),  # seen as `3.2*(1/h_x)`, so counts as 2
-    ('Eq(t0, 3.2/h_x*fa + 2.4/h_x*fb)', 7, True),  # `pow(...constants...)` counts as 1
+    ('Eq(t0, 3.2/h_x)', 6, True),  # seen as `3.2*(1/h_x)`, so counts as 2
+    ('Eq(t0, 3.2/h_x*fa + 2.4/h_x*fb)', 15, True),  # `pow(...constants...)` counts as 1
 ])
 def test_estimate_cost(expr, expected, estimate):
     # Note: integer arithmetic isn't counted
@@ -363,13 +363,13 @@ class TestAliases(object):
     @pytest.mark.parametrize('exprs,expected', [
         # none (different distance)
         (['Eq(t0, fa[x] + fb[x])', 'Eq(t1, fa[x+1] + fb[x])'],
-         ['fa[x] + fb[x]', 'fa[x+1] + fb[x]']),
+         []),
         # none (different dimension)
         (['Eq(t0, fa[x] + fb[x])', 'Eq(t1, fa[x] + fb[y])'],
-         ['fa[x] + fb[x]']),
+         []),
         # none (different operation)
         (['Eq(t0, fa[x] + fb[x])', 'Eq(t1, fa[x] - fb[x])'],
-         ['fa[x] + fb[x]', 'fa[x] - fb[x]']),
+         []),
         # simple
         (['Eq(t0, fa[x] + fb[x])', 'Eq(t1, fa[x+1] + fb[x+1])',
           'Eq(t2, fa[x+2] + fb[x+2])'],
@@ -433,7 +433,7 @@ class TestAliases(object):
         aliases = collect(extracted, ispace, False)
 
         assert len(aliases) == len(expected)
-        assert all(i in expected for i in aliases)
+        assert all(i.pivot in expected for i in aliases)
 
     def get_params(self, op, *names):
         ret = []
@@ -472,20 +472,18 @@ class TestAliases(object):
         x, y, z = grid.dimensions
         t = grid.stepping_dim
 
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name="u1", grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 0.5
         u1.data_with_halo[:] = 0.5
 
         # Leads to 3D aliases
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3*f +
-                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z+1])*3. +
+                               _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.) + 1.)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -510,20 +508,18 @@ class TestAliases(object):
         x, y, z = grid.dimensions
         t = grid.stepping_dim
 
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 0.5
         u1.data_with_halo[:] = 0.5
 
         # Leads to 2D aliases
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x, y+1, z+1])*3*f +
-                             (u[t, x, y+2, z+2] + u[t, x, y+3, z+3])*3*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x, y+1, z+1])*3. +
+                               _R(u[t, x, y+2, z+2] + u[t, x, y+3, z+3])*3.) + 1)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -549,20 +545,18 @@ class TestAliases(object):
         x, y, z = grid.dimensions
         t = grid.stepping_dim
 
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 0.5
         u1.data_with_halo[:] = 0.5
 
         # Leads to 3D aliases
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z])*3*f +
-                             (u[t, x+2, y+2, z] + u[t, x+3, y+3, z])*3*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z])*3. +
+                               _R(u[t, x+2, y+2, z] + u[t, x+3, y+3, z])*3.) + 1)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -623,21 +617,19 @@ class TestAliases(object):
         x, y, z = grid.dimensions
         t = grid.stepping_dim
 
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 0.5
         u1.data_with_halo[:] = 0.5
 
         # Leads to 3D aliases
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3*f +
-                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3*f + 1),
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z+1])*3. +
+                               _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.) + 1,
                  subdomain=grid.interior)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -665,26 +657,24 @@ class TestAliases(object):
         d = Dimension(name='d')
 
         c = Function(name='c', grid=grid, shape=(2, 3), dimensions=(d, z))
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u', grid=grid, space_order=3)
 
         c.data_with_halo[:] = 1.
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 1.5
         u1.data_with_halo[:] = 1.5
 
         # Leads to 2D and 3D aliases
         eqn = Eq(u.forward,
-                 ((c[0, z]*u[t, x+1, y+1, z] + c[1, z+1]*u[t, x+1, y+1, z+1])*f +
-                  (c[0, z]*u[t, x+2, y+2, z] + c[1, z+1]*u[t, x+2, y+2, z+1])*f +
-                  (u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1])*3*f +
-                  (u[t, x, y+3, z+1] + u[t, x+1, y+3, z+1])*3*f))
+                 _R(_R(c[0, z]*u[t, x+1, y+1, z] + c[1, z+1]*u[t, x+1, y+1, z+1]) +
+                    _R(c[0, z]*u[t, x+2, y+2, z] + c[1, z+1]*u[t, x+2, y+2, z+1]) +
+                    _R(u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1]*3.) +
+                    _R(u[t, x, y+3, z+1] + u[t, x+1, y+3, z+1]*3.)))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced',
                                  {'openmp': True, 'min-storage': True,
-                                  'cire-mincost-sops': 1, 'cire-rotate': rotate}))
+                                  'cire-mingain': 0, 'cire-rotate': rotate}))
 
         # Check code generation
         assert len(op1._func_table) == 1
@@ -767,13 +757,13 @@ class TestAliases(object):
                 Eq(v1.forward, (v1+v2).laplace + u1.dt2),
                 Eq(v2.forward, (v1-v2).laplace + u2.dt2)]
 
-        op0 = Operator(eqns, opt=('advanced', {'min-storage': False,
-                                               'cire-mincost-sops': 1}))
-        op1 = Operator(eqns, opt=('advanced', {'min-storage': True,
-                                               'cire-mincost-sops': 1}))
+        op0 = Operator(eqns, opt=('advanced', {'min-storage': False, 'cire-mingain': 1}))
+        op1 = Operator(eqns, opt=('advanced', {'min-storage': True, 'cire-mingain': 1}))
 
         # Check code generation
-        # min-storage has no effect in this example
+        assert len([i for i in FindSymbols().visit(op0) if i.is_Array]) == 4
+        # In particular, check that `min-storage` works, but has "no effect" in this
+        # example, in the sense that it produces the same code as default
         assert str(op0) == str(op1)
 
     @pytest.mark.parametrize('rotate', [False, True])
@@ -788,27 +778,25 @@ class TestAliases(object):
         d = Dimension(name='d')
 
         c = Function(name='c', grid=grid, shape=(2, 3), dimensions=(d, z))
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
 
         c.data_with_halo[:] = 1.
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 1.5
         u1.data_with_halo[:] = 1.5
 
         # Leads to 2D and 3D aliases
         eqn = Eq(u.forward,
-                 ((c[0, z]*u[t, x+1, y-1, z] + c[1, z+1]*u[t, x+1, y-1, z+1])*f +
-                  (c[0, z]*u[t, x+2, y-2, z] + c[1, z+1]*u[t, x+2, y-2, z+1])*f +
-                  (u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1])*3*f +
-                  (u[t, x, y+3, z+2] + u[t, x+1, y+3, z+2])*3*f),
+                 _R(_R(c[0, z]*u[t, x+1, y-1, z] + c[1, z+1]*u[t, x+1, y-1, z+1]) +
+                    _R(c[0, z]*u[t, x+2, y-2, z] + c[1, z+1]*u[t, x+2, y-2, z+1]) +
+                    _R(u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1])*3. +
+                    _R(u[t, x, y+3, z+2] + u[t, x+1, y+3, z+2])*3.),
                  subdomain=grid.interior)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced',
                                  {'openmp': True, 'min-storage': True,
-                                  'cire-mincost-sops': 1, 'cire-rotate': rotate}))
+                                  'cire-mingain': 0, 'cire-rotate': rotate}))
 
         # Check code generation
         assert len(op1._func_table) == 1
@@ -836,24 +824,22 @@ class TestAliases(object):
         d = Dimension(name='d')
 
         c = Function(name='c', grid=grid, shape=(2, 5), dimensions=(d, z))
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=4)
         u1 = TimeFunction(name='u1', grid=grid, space_order=4)
 
         c.data_with_halo[:] = 1.
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 1.5
         u1.data_with_halo[:] = 1.5
 
         # Leads to 3D aliases
         eqn = Eq(u.forward,
-                 ((c[0, z]*u[t, x+1, y, z] + c[1, z+1]*u[t, x+1, y, z+1])*f +
-                  (c[0, z]*u[t, x+2, y+2, z] + c[1, z+1]*u[t, x+2, y+2, z+1])*f +
-                  (u[t, x, y-4, z+1] + u[t, x+1, y-4, z+1])*3*f +
-                  (u[t, x-1, y-3, z+1] + u[t, x, y-3, z+1])*3*f))
+                 _R(_R(c[0, z]*u[t, x+1, y, z] + c[1, z+1]*u[t, x+1, y, z+1]) +
+                    _R(c[0, z]*u[t, x+2, y+2, z] + c[1, z+1]*u[t, x+2, y+2, z+1]) +
+                    _R(u[t, x, y-4, z+1] + u[t, x+1, y-4, z+1])*3. +
+                    _R(u[t, x-1, y-3, z+1] + u[t, x, y-3, z+1])*3.))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -884,34 +870,33 @@ class TestAliases(object):
         y_m = y.symbolic_min
         t = grid.stepping_dim
 
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 0.5
         u1.data_with_halo[:] = 0.5
 
         # Leads to 2D aliases
         eqn = Eq(u.forward,
-                 ((u[t, x_m+2, y, z] + u[t, x_m+3, y+1, z+1])*3*f +
-                  (u[t, x_m+2, y+2, z+2] + u[t, x_m+3, y+3, z+3])*3*f + 1 +
-                  (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3*f +  # Not an alias
-                  (u[t, x_m+1, y+2, z+2] + u[t, x_m+1, y+3, z+3])*3*f +  # Not an alias
-                  (u[t, x+2, y_m+3, z+2] + u[t, x+3, y_m+3, z+3])*3*f +
-                  (u[t, x+1, y_m+3, z+1] + u[t, x+2, y_m+3, z+2])*3*f))
+                 _R(_R(u[t, x_m+2, y, z] + u[t, x_m+3, y+1, z+1])*3. +
+                    _R(u[t, x_m+2, y+2, z+2] + u[t, x_m+3, y+3, z+3])*3. + 1 +
+                    _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3. +  # N, not an alias
+                    _R(u[t, x_m+1, y+2, z+2] + u[t, x_m+1, y+3, z+3])*3. +  # Y, redundant
+                    _R(u[t, x+2, y_m+3, z+2] + u[t, x+3, y_m+3, z+3])*3. +
+                    _R(u[t, x+1, y_m+3, z+1] + u[t, x+2, y_m+3, z+2])*3.))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
                                               'cire-rotate': rotate}))
 
         # Check code generation
         xs, ys, zs = self.get_params(op1, 'x0_blk0_size', 'y0_blk0_size', 'z_size')
         arrays = [i for i in FindSymbols().visit(op1._func_table['bf0']) if i.is_Array]
-        assert len(arrays) == 2
-        assert len(FindNodes(VExpanded).visit(op1._func_table['bf0'])) == 2
+        assert len(arrays) == 3
+        assert len(FindNodes(VExpanded).visit(op1._func_table['bf0'])) == 3
         self.check_array(arrays[0], ((1, 0), (1, 0)), (xs+1, zs+1), rotate)
         self.check_array(arrays[1], ((1, 1), (1, 1)), (ys+2, zs+2), rotate)
+        self.check_array(arrays[2], ((1, 1), (1, 1)), (ys+2, zs+2), rotate)
 
         # Check numerical output
         op0(time_M=1)
@@ -930,11 +915,9 @@ class TestAliases(object):
         x, y, z = grid.dimensions
         t = grid.stepping_dim
 
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 2.
         u.data_with_halo[:] = 1.5
         u1.data_with_halo[:] = 1.5
 
@@ -942,12 +925,12 @@ class TestAliases(object):
         # Note: the outlier already touches the halo extremes, so it cannot
         # be computed in a loop with extra y-iterations, hence it must be ignored
         # while not compromising the detection of the two aliasing sub-expressions
-        eqn = Eq(u.forward, ((u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1])*3*f +
-                             (u[t, x, y-3, z+1] + u[t, x+1, y+3, z+1])*3*f +  # outlier
-                             (u[t, x, y+3, z+2] + u[t, x+1, y+3, z+2])*3*f))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y+1, z+1] + u[t, x+1, y+1, z+1])*3. +
+                               _R(u[t, x, y-3, z+1] + u[t, x+1, y+3, z+1])*3. +  # outlier
+                               _R(u[t, x, y+3, z+2] + u[t, x+1, y+3, z+2])*3.))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
                                               'cire-rotate': rotate}))
 
         assert len(op1._func_table) == 1
@@ -1052,8 +1035,6 @@ class TestAliases(object):
         v = TimeFunction(name='v', grid=grid, space_order=space_order)
         u1 = TimeFunction(name='u', grid=grid, space_order=space_order)
         v1 = TimeFunction(name='v', grid=grid, space_order=space_order)
-        u2 = TimeFunction(name='u', grid=grid, space_order=space_order)
-        v2 = TimeFunction(name='v', grid=grid, space_order=space_order)
         f = Function(name='f', grid=grid, space_order=space_order)
         e = Function(name='e', grid=grid, space_order=space_order)
         p0 = Function(name='p0', grid=grid, space_order=space_order)
@@ -1078,8 +1059,7 @@ class TestAliases(object):
                 Eq(v.forward, d1((1 - f + f * e**2) * d0(v) + f * e * sqrt(1 - e**2)))]
 
         op0 = Operator(eqns, opt='noop')
-        op1 = Operator(eqns, opt='advanced')
-        op2 = Operator(eqns, opt=('advanced', {'cire-maxalias': True}))
+        op1 = Operator(eqns, opt=('advanced', {'cire-schedule': 2}))
 
         # Check code generation
         # We expect two temporary Arrays which have in common a sub-expression
@@ -1098,18 +1078,12 @@ class TestAliases(object):
         # Check numerical output
         op0(time_M=2)
         summary1 = op1(time_M=2, u=u1, v=v1)
-        expected_u = norm(u)
-        expected_v = norm(v)
-        assert np.isclose(expected_u, norm(u1), rtol=10e-16)
-        assert np.isclose(expected_v, norm(v1), rtol=10e-16)
-        summary2 = op2(time_M=2, u=u2, v=v2)
-        assert np.isclose(expected_u, norm(u2), rtol=10e-16)
-        assert np.isclose(expected_v, norm(v2), rtol=10e-16)
+        assert np.isclose(norm(u), norm(u1), rtol=10e-16)
+        assert np.isclose(norm(v), norm(v1), rtol=10e-16)
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
-        assert sum(i.ops for i in summary1.values()) == 73
-        assert sum(i.ops for i in summary2.values()) == 60
+        assert sum(i.ops for i in summary1.values()) == 76
 
     @pytest.mark.parametrize('rotate', [False, True])
     def test_from_different_nests(self, rotate):
@@ -1123,25 +1097,25 @@ class TestAliases(object):
         t = grid.stepping_dim
         i = Dimension(name='i')
 
-        f = Function(name='f', grid=grid)
         g = Function(name='g', shape=(3,), dimensions=(i,))
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
         v = TimeFunction(name='v', grid=grid, space_order=3)
         v1 = TimeFunction(name='v1', grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 1.
+        uf = u.forward
+        vf = v.forward
+
         g.data[:] = 2.
 
         # Leads to 3D aliases
-        eqns = [Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3*f +
-                               (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3*f + 1)),
+        eqns = [Eq(uf, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z+1])*3. +
+                          _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3. + 1.)),
                 Inc(u[t+1, i, i, i], g + 1),
-                Eq(v.forward, ((v[t, x, y, z] + v[t, x+1, y+1, z+1])*3*u.forward +
-                               (v[t, x+2, y+2, z+2] + v[t, x+3, y+3, z+3])*3*u.forward +
-                               1))]
+                Eq(vf, _R(_R(v[t, x, y, z] + v[t, x+1, y+1, z+1])*3. +
+                          _R(v[t, x+2, y+2, z+2] + v[t, x+3, y+3, z+3])*3. + 1.) + uf)]
         op0 = Operator(eqns, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqns, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqns, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
                                                'cire-rotate': rotate}))
 
         # Check code generation
@@ -1174,20 +1148,18 @@ class TestAliases(object):
         x, y, z = grid.dimensions
         t = grid.stepping_dim
 
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 0.5
         u1.data_with_halo[:] = 0.5
 
         # Leads to 3D aliases
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3*f +
-                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z+1])*3. +
+                               _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3. + 1.))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': False}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': False, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': False, 'cire-mingain': 0,
                                               'cire-rotate': rotate}))
 
         # Check code generation
@@ -1267,10 +1239,10 @@ class TestAliases(object):
         exprs = FindNodes(Expression).visit(op)
         sqrt_exprs = exprs[:2]
         assert all(e.write in arrays for e in sqrt_exprs)
-        assert all(e.expr.rhs.is_Pow for e in sqrt_exprs)
+        assert all(e.expr.rhs.args[0].is_Pow for e in sqrt_exprs)
         assert all(e.write._mem_heap and not e.write._mem_external for e in sqrt_exprs)
 
-        tmp_exprs = exprs[2:4]
+        tmp_exprs = exprs[4:6]
         assert all(e.write in arrays for e in tmp_exprs)
         assert all(e.write._mem_heap and not e.write._mem_external for e in tmp_exprs)
 
@@ -1336,6 +1308,7 @@ class TestAliases(object):
 
         op = Operator([pde, df])
 
+        # Check code generation
         trees = retrieve_iteration_tree(op)
         assert len(trees) == 3
         assert len(trees[0]) == 3  # time, x, y
@@ -1346,6 +1319,77 @@ class TestAliases(object):
         trees = retrieve_iteration_tree(op._func_table['bf0'].root)
         assert len(trees) == 1
         assert len(trees[0]) == 4  # f-blocked, f, x, y
+
+    def test_space_invariant_v2(self):
+        """
+        Similar to test_space_invariant, but now the invariance is only w.r.t.
+        one of the inner space dimensions.
+        """
+        grid1 = Grid(shape=(10, 10, 10))
+        x, y, z = grid1.dimensions
+        grid2 = Grid(shape=(10, 10), dimensions=(x, y))
+
+        u1 = TimeFunction(name="u", grid=grid1)
+        u2 = TimeFunction(name="u", grid=grid2)
+
+        for u in [u1, u2]:
+            eq = Eq(u.forward, u*sin(y + y.symbolic_max))
+
+            op = Operator(eq)
+
+            # Check code generation
+            ys = self.get_params(op, 'y_size')[0]
+            arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
+            assert len(arrays) == 1
+            self.check_array(arrays[0], ((0, 0),), (ys,))
+            trees = retrieve_iteration_tree(op)
+            assert len(trees) == 2
+            assert trees[0].root.dim is y
+
+    def test_space_invariant_v3(self):
+        """
+        Similar to test_space_invariant, but now with many invariants along
+        different subsets of space dimensions.
+        """
+        grid = Grid(shape=(10, 10, 10))
+        x, y, z = grid.dimensions
+
+        f = Function(name='f', grid=grid)
+
+        eq = Eq(f, f + cos(x*y*z) + cos(x*y)*cos(y) + sin(x)*cos(x*z))
+
+        op = Operator(eq)
+
+        xs, ys, zs = self.get_params(op, 'x_size', 'y_size', 'z_size')
+        arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
+        assert len(arrays) == 3
+        self.check_array(arrays[0], ((0, 0),), (ys,))
+        self.check_array(arrays[1], ((0, 0), (0, 0)), (xs, zs))
+        self.check_array(arrays[2], ((0, 0), (0, 0)), (xs, ys))
+
+    def test_space_invariant_v4(self):
+        """
+        Similar to test_space_invariant, stems from viscoacoustic -- a portion
+        of a space derivative that would be redundantly computed in two separated
+        loop nests is recognised to be a time invariant and factored into a common
+        temporary.
+        """
+        grid = Grid(shape=(10, 10, 10))
+
+        f = Function(name='f', grid=grid)
+        u = TimeFunction(name='u', grid=grid)
+        v = TimeFunction(name='v', grid=grid)
+
+        eqns = [Eq(u.forward, (u*cos(f)).dx + v),
+                Eq(v.forward, (v*cos(f)).dy + u.forward.dx)]
+
+        op = Operator(eqns)
+
+        xs, ys, zs = self.get_params(op, 'x_size', 'y_size', 'z_size')
+        arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
+        assert len(arrays) == 1
+        self.check_array(arrays[0], ((1, 0), (1, 0), (0, 0)), (xs+1, ys+1, zs))
+        assert op._profiler._sections['section1'].sops == 15
 
     def test_catch_duplicate_from_different_clusters(self):
         """
@@ -1370,7 +1414,7 @@ class TestAliases(object):
                 s.inject(e.forward, expr=s) +
                 [Eq(f.forward, deriv2 + f + e.forward.dx)])
 
-        op = Operator(eqns, opt=('advanced', {'cire-mincost-sops': 1000}))
+        op = Operator(eqns, opt=('advanced', {'cire-mingain': 100}))
 
         arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
         assert len(arrays) == 3
@@ -1393,12 +1437,32 @@ class TestAliases(object):
         eqns = [Eq(e.forward, e + 1),
                 Eq(f.forward, f*subexpr0 - f*subexpr1 + e.forward.dx)]
 
-        op = Operator(eqns, opt=('advanced', {'cire-mincost-inv': 28}))
+        op = Operator(eqns, opt=('advanced', {'cire-mingain': 28}))
 
         trees = retrieve_iteration_tree(op)
         assert len(trees) == 3
         arrays = [i for i in FindSymbols().visit(trees[0].root) if i.is_Array]
         assert len(arrays) == 2
+        assert all(i._mem_heap and not i._mem_external for i in arrays)
+
+    def test_discarded_compound(self):
+        """
+        Test that compound aliases may be ignored if part of a bigger alias.
+        """
+        grid = Grid((10, 10))
+        dt = grid.time_dim.spacing
+
+        a = Function(name="a", grid=grid, space_order=4)
+        e = TimeFunction(name="e", grid=grid, space_order=4)
+
+        eqn = Eq(e.forward, e/(1./cos(a) + 1/(dt**2*a**2)) + dt**-2 + a**-2)
+
+        op = Operator(eqn)
+
+        trees = retrieve_iteration_tree(op)
+        assert len(trees) == 2
+        arrays = [i for i in FindSymbols().visit(trees[0].root) if i.is_Array]
+        assert len(arrays) == 1
         assert all(i._mem_heap and not i._mem_external for i in arrays)
 
     def test_lazy_solve_produces_larger_temps(self):
@@ -1413,9 +1477,8 @@ class TestAliases(object):
         eq = Eq(u.forward, solve(pde, u.forward))
 
         op = Operator(eq)
-
         assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 2
-        assert op._profiler._sections['section0'].sops == 41
+        assert op._profiler._sections['section0'].sops == 39
 
     def test_hoisting_iso_ot4_akin(self):
         """
@@ -1433,7 +1496,7 @@ class TestAliases(object):
 
         op = Operator(eq, opt=('advanced', {'openmp': False}))
         assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 0
-        assert op._profiler._sections['section0'].sops == 40
+        assert op._profiler._sections['section0'].sops == 34
 
         # The Eq implements an OT4 iso-acoustic stencil
         pde = m * u.dt2 - u.laplace - s**2/12 * u.biharmonic(1/m)
@@ -1441,21 +1504,16 @@ class TestAliases(object):
 
         op0 = Operator(eq, opt=('advanced', {'openmp': False}))
         assert len([i for i in FindSymbols().visit(op0) if i.is_Array]) == 2
-        assert op0._profiler._sections['section1'].sops == 74
+        assert op0._profiler._sections['section1'].sops == 62
 
-        op1 = Operator(eq, opt=('advanced', {'openmp': False, 'cire-maxalias': True}))
-        assert len([i for i in FindSymbols().visit(op1) if i.is_Array]) == 4
-        assert op1._profiler._sections['section1'].sops == 64
-
-        op2 = Operator(eq, opt=('advanced', {'openmp': False, 'cire-maxalias': True}),
+        op1 = Operator(eq, opt=('advanced', {'openmp': False}),
                        subs={i: 0.5 for i in grid.spacing_symbols})
-        assert len([i for i in FindSymbols().visit(op2) if i.is_Array]) == 2
-        assert op2._profiler._sections['section1'].sops == 44
+        assert len([i for i in FindSymbols().visit(op1) if i.is_Array]) == 2
+        assert op1._profiler._sections['section1'].sops == 44
 
     def test_hoisting_scalar_divs(self):
         """
-        Test that scalar divisions are hoisted out of the inner loops when
-        generating code for device offloading.
+        Test that scalar divisions are hoisted out of the inner loops.
         """
         grid = Grid(shape=(3, 3))
 
@@ -1465,18 +1523,19 @@ class TestAliases(object):
         pde = m * u.dt2 - u.laplace
         eq = Eq(u.forward, solve(pde, u.forward))
 
+        # Check that different backends behave the same (in older versions
+        # they were generating different code)
         op0 = Operator(eq, opt=('advanced', {'openmp': False}))
         op1 = Operator(eq, platform='nvidiaX', language='openacc')
 
-        for op, ops, nexprs in [(op0, 30, 3), (op1, 26, 5)]:
+        for op, ops, nexprs in [(op0, 26, 5), (op1, 26, 5)]:
             assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 0
             assert op._profiler._sections['section0'].sops == ops
             exprs = FindNodes(Expression).visit(op)
             assert len(exprs) == nexprs
             assert all(e.is_scalar for e in exprs[:-1])
-        assert op0.body[-1].body[0].is_Iteration
-        assert op1.body[-1].body[0].is_ExpressionBundle
-        assert op1.body[-1].body[-1].is_Iteration
+            assert op.body[-1].body[0].is_ExpressionBundle
+            assert op.body[-1].body[-1].is_Iteration
 
     @pytest.mark.parametrize('rotate', [False, True])
     def test_drop_redundants_after_fusion(self, rotate):
@@ -1513,7 +1572,7 @@ class TestAliases(object):
         op = Operator(eqns, opt=('advanced', {'cire-rotate': rotate}))
 
         arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
-        assert len(arrays) == 3
+        assert len(arrays) == 2
         assert all(i._mem_heap and not i._mem_external for i in arrays)
 
     def test_full_shape_big_temporaries(self):
@@ -1525,21 +1584,18 @@ class TestAliases(object):
         x, y, z = grid.dimensions
         t = grid.stepping_dim
 
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name='u1', grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 0.5
         u1.data_with_halo[:] = 0.5
 
         # Leads to 3D aliases
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3*f +
-                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z+1])*3. +
+                               _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3. + 1.))
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced-fsg', {'openmp': True,
-                                                  'cire-mincost-sops': 1}))
+        op1 = Operator(eqn, opt=('advanced-fsg', {'openmp': True, 'cire-mingain': 0}))
 
         # Check code generation
         assert len(op1._func_table) == 2  # Expected two separate blocked loop nests
@@ -1552,7 +1608,7 @@ class TestAliases(object):
         # Check that `cire-rotate=True` has no effect in this code has there's
         # no cross-loop blocking
         op2 = Operator(eqn, opt=('advanced-fsg', {'openmp': True, 'cire-rotate': True,
-                                                  'cire-mincost-sops': 1}))
+                                                  'cire-mingain': 0}))
         assert str(op2) == str(op1)
 
         # Check numerical output
@@ -1587,7 +1643,7 @@ class TestAliases(object):
 
         # Operator
         op0 = Operator(eqns, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqns, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqns, opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                                'cire-rotate': rotate}))
 
         # Check numerical output
@@ -1598,7 +1654,200 @@ class TestAliases(object):
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
-        assert summary[('section0', None)].ops == 115
+        assert summary[('section0', None)].ops == 93
+
+    @pytest.mark.parametrize('so_ops', [(4, 108)])
+    @switchconfig(profiling='advanced')
+    def test_tti_J_akin_bb0(self, so_ops):
+        grid = Grid(shape=(16, 16, 16))
+        x, y, z = grid.dimensions
+
+        space_order, exp_ops = so_ops
+
+        g = Function(name='g', grid=grid, space_order=space_order)
+        phi = Function(name='phi', grid=grid, space_order=space_order)
+        p0 = TimeFunction(name='p0', grid=grid, time_order=2, space_order=space_order)
+        m0 = TimeFunction(name='m0', grid=grid, time_order=2, space_order=space_order)
+
+        def g1(field):
+            return (field.dx(x0=x+x.spacing/2) +
+                    field.dy(x0=y+y.spacing/2) -
+                    field.dz(x0=z+z.spacing/2))
+
+        def g1_tilde(field, phi):
+            return ((cos(phi) * field).dx(x0=x-x.spacing/2) +
+                    (sin(phi) * field).dy(x0=y-y.spacing/2) -
+                    field.dz(x0=z-z.spacing/2))
+
+        update_p = g + \
+            (g1_tilde(g1(p0), phi) +
+             g1_tilde(g1(p0) + g1(m0), phi))
+
+        eqn = Eq(p0.forward, update_p)
+
+        op = Operator(eqn, subs=grid.spacing_map, openmp=True)
+
+        # Check code generation
+        assert op._profiler._sections['section1'].sops == exp_ops
+        arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
+        assert len(arrays) == 5
+        assert len(FindNodes(VExpanded).visit(op._func_table['bf0'])) == 3
+        xs, ys, zs = self.get_params(op, 'x0_blk0_size', 'y0_blk0_size', 'z_size')
+        # The three kind of derivatives taken -- in x, y, z -- all are over
+        # different expressions, so this leads to three temporaries of dimensionality,
+        # in particular 3D for the x-derivative, 2D for the y-derivative, and 1D
+        # for the z-derivative
+        self.check_array(arrays[2], ((2, 1), (0, 0), (0, 0)), (xs+3, ys, zs))
+        self.check_array(arrays[3], ((2, 1), (0, 0)), (ys+3, zs))
+        self.check_array(arrays[4], ((2, 1),), (zs+3,))
+
+    @pytest.mark.parametrize('so_ops', [(4, 51), (8, 95)])
+    @switchconfig(profiling='advanced')
+    def test_tti_J_akin_bb1(self, so_ops):
+        grid = Grid(shape=(16, 16, 16))
+        x, y, z = grid.dimensions
+
+        space_order, exp_ops = so_ops
+
+        vel = Function(name='vel', grid=grid, space_order=space_order)
+        a = Function(name='a', grid=grid, space_order=space_order)
+        phi = Function(name='phi', grid=grid, space_order=space_order)
+        p0 = TimeFunction(name='p0', grid=grid, time_order=2, space_order=space_order)
+        m0 = TimeFunction(name='m0', grid=grid, time_order=2, space_order=space_order)
+
+        def g1(field):
+            return field.dx + field.dy - field.dz
+
+        def g1_tilde(field, phi):
+            return (cos(phi) * field).dx + (sin(phi) * field).dy - field.dz
+
+        def g3_tilde(field, phi):
+            return (cos(phi) * field).dx + (sin(phi) * field).dy + field.dz
+
+        update_p = vel**2 * \
+            (g1_tilde(g1(p0), phi) +
+             g3_tilde(g1(p0) + sqrt(1 - vel**2) * g1(m0), phi)) + a
+
+        eqn = Eq(p0.forward, update_p)
+
+        op = Operator(eqn, subs=grid.spacing_map, openmp=True)
+
+        # Check code generation
+        assert op._profiler._sections['section1'].sops == exp_ops
+        arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
+        assert len(arrays) == 6
+        assert len(FindNodes(VExpanded).visit(op._func_table['bf0'])) == 3
+
+    @pytest.mark.parametrize('so_ops', [(4, 48)])
+    @switchconfig(profiling='advanced')
+    def test_tti_J_akin_bb2(self, so_ops):
+        grid = Grid(shape=(16, 16, 16))
+        x, y, z = grid.dimensions
+
+        space_order, exp_ops = so_ops
+
+        f = Function(name='f', grid=grid, space_order=space_order)
+        theta = Function(name='theta', grid=grid, space_order=space_order)
+        phi = Function(name='phi', grid=grid, space_order=space_order)
+        p0 = TimeFunction(name='p0', grid=grid, time_order=2, space_order=space_order)
+
+        def g1(field, phi, theta):
+            return (cos(theta) * cos(phi) * field.dx(x0=x+x.spacing/2) +
+                    cos(theta) * sin(phi) * field.dy(x0=y+y.spacing/2) -
+                    sin(theta) * field.dz(x0=z+z.spacing/2))
+
+        def g2(field, phi, theta):
+            return - (sin(phi) * field.dx(x0=x+x.spacing/2) -
+                      cos(phi) * field.dy(x0=y+y.spacing/2))
+
+        def g1_tilde(field, phi, theta):
+            return ((cos(theta) * cos(phi) * field).dx(x0=x-x.spacing/2) +
+                    (cos(theta) * sin(phi) * field).dy(x0=y-y.spacing/2) -
+                    (sin(theta) * field).dz(x0=z-z.spacing/2))
+
+        def g2_tilde(field, phi, theta):
+            return - ((sin(phi) * field).dx(x0=x-x.spacing/2) -
+                      (cos(phi) * field).dy(x0=y-y.spacing/2))
+
+        update_p = exp_ops + f * (g1_tilde(g1(p0, phi, theta), phi, theta) +
+                                  g2_tilde(g2(p0, phi, theta), phi, theta))
+
+        eqn = Eq(p0.forward, update_p)
+
+        op = Operator(eqn, subs=grid.spacing_map, openmp=True)
+
+        # Check code generation
+        assert op._profiler._sections['section1'].sops == exp_ops
+        arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
+        assert len(arrays) == 7
+        assert len(FindNodes(VExpanded).visit(op._func_table['bf0'])) == 3
+
+    @pytest.mark.parametrize('so_ops', [(4, 144), (8, 208)])
+    @switchconfig(profiling='advanced')
+    def test_tti_J_akin_complete(self, so_ops):
+        grid = Grid(shape=(16, 16, 16))
+        t = grid.stepping_dim
+        x, y, z = grid.dimensions
+
+        space_order, exp_ops = so_ops
+
+        a = Function(name='a', grid=grid, space_order=space_order)
+        f = Function(name='f', grid=grid, space_order=space_order)
+        theta = Function(name='theta', grid=grid, space_order=space_order)
+        phi = Function(name='phi', grid=grid, space_order=space_order)
+        p0 = TimeFunction(name='p0', grid=grid, time_order=2, space_order=space_order)
+        m0 = TimeFunction(name='m0', grid=grid, time_order=2, space_order=space_order)
+
+        def g1(field, phi, theta):
+            return (cos(theta) * cos(phi) * field.dx(x0=x+x.spacing/2) +
+                    cos(theta) * sin(phi) * field.dy(x0=y+y.spacing/2) -
+                    sin(theta) * field.dz(x0=z+z.spacing/2))
+
+        def g2(field, phi, theta):
+            return - (sin(phi) * field.dx(x0=x+x.spacing/2) -
+                      cos(phi) * field.dy(x0=y+y.spacing/2))
+
+        def g3(field, phi, theta):
+            return (sin(theta) * cos(phi) * field.dx(x0=x+x.spacing/2) +
+                    sin(theta) * sin(phi) * field.dy(x0=y+y.spacing/2) +
+                    cos(theta) * field.dz(x0=z+z.spacing/2))
+
+        def g1_tilde(field, phi, theta):
+            return ((cos(theta) * cos(phi) * field).dx(x0=x-x.spacing/2) +
+                    (cos(theta) * sin(phi) * field).dy(x0=y-y.spacing/2) -
+                    (sin(theta) * field).dz(x0=z-z.spacing/2))
+
+        def g2_tilde(field, phi, theta):
+            return - ((sin(phi) * field).dx(x0=x-x.spacing/2) -
+                      (cos(phi) * field).dy(x0=y-y.spacing/2))
+
+        def g3_tilde(field, phi, theta):
+            return ((sin(theta) * cos(phi) * field).dx(x0=x-x.spacing/2) +
+                    (sin(theta) * sin(phi) * field).dy(x0=y-y.spacing/2) +
+                    (cos(theta) * field).dz(x0=z-z.spacing/2))
+
+        update_p = t.spacing**2 * a**2 / f * \
+            (g1_tilde(f * g1(p0, phi, theta), phi, theta) +
+             g2_tilde(f * g2(p0, phi, theta), phi, theta) +
+             g3_tilde(f * g3(p0, phi, theta) + f * g3(m0, phi, theta), phi, theta)) + \
+            (2 - t.spacing * a)
+
+        update_m = t.spacing**2 * a**2 / f * \
+            (g1_tilde(f * g1(m0, phi, theta), phi, theta) +
+             g2_tilde(f * g2(m0, phi, theta), phi, theta) +
+             g3_tilde(f * g3(m0, phi, theta) + f * g3(p0, phi, theta), phi, theta)) + \
+            (2 - t.spacing * a)
+
+        eqns = [Eq(p0.forward, update_p),
+                Eq(m0.forward, update_m)]
+
+        op = Operator(eqns, subs=grid.spacing_map, openmp=True)
+
+        # Check code generation
+        assert op._profiler._sections['section1'].sops == exp_ops
+        arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
+        assert len(arrays) == 10
+        assert len(FindNodes(VExpanded).visit(op._func_table['bf0'])) == 6
 
     @pytest.mark.parametrize('so_ops', [(4, 33), (8, 69)])
     @pytest.mark.parametrize('rotate', [False, True])
@@ -1649,7 +1898,7 @@ class TestAliases(object):
 
         op0 = Operator(eqn, subs=grid.spacing_map, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, subs=grid.spacing_map,
-                       opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+                       opt=('advanced', {'openmp': True, 'cire-mingain': 1,
                                          'cire-rotate': rotate}))
 
         # Check numerical output
@@ -1657,9 +1906,11 @@ class TestAliases(object):
         summary = op1(time_M=1, r=r1)
         assert np.isclose(norm(r), norm(r1), rtol=1e-5)
 
-        # Also check against expected operation count to make sure
-        # all redundancies have been detected correctly
+        # Check code generation
         assert summary[('section1', None)].ops == exp_ops
+        arrays = [i for i in FindSymbols().visit(op1._func_table['bf0']) if i.is_Array]
+        assert len(arrays) == 5
+        assert len(FindNodes(VExpanded).visit(op1._func_table['bf0'])) == 1
 
     @switchconfig(profiling='advanced')
     def test_tti_adjoint_akin_v2(self):
@@ -1708,12 +1959,13 @@ class TestAliases(object):
 
         # Check numerical output
         op0(time_M=1)
-        summary = op1(time_M=1, p=p1)
-        assert np.isclose(norm(p), norm(p1), atol=1e-15)
+        summary1 = op1(time_M=1, p=p1)
+        exp_p = norm(p)
+        assert np.isclose(exp_p, norm(p1), atol=1e-15)
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
-        assert summary[('section1', None)].ops == 80
+        assert summary1[('section1', None)].ops == 75
 
     @pytest.mark.parametrize('rotate', [False, True])
     @switchconfig(profiling='advanced')
@@ -1727,19 +1979,15 @@ class TestAliases(object):
         f = Function(name='f', grid=grid, space_order=4)
         v = TimeFunction(name="v", grid=grid, space_order=4)
         v1 = TimeFunction(name="v1", grid=grid, space_order=4)
-        v2 = TimeFunction(name="v2", grid=grid, space_order=4)
 
         f.data_with_halo[:] = 0.5
         v.data_with_halo[:] = 1.
         v1.data_with_halo[:] = 1.
-        v2.data_with_halo[:] = 1.
 
         eqn = Eq(v.forward, (v.dx * (1 + 2*f) * f).dx)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-rotate': rotate}))
-        op2 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-rotate': rotate,
-                                              'cire-maxalias': True}))
 
         # Check code generation
         arrays = [i for i in FindSymbols().visit(op1._func_table['bf0']) if i.is_Array]
@@ -1751,26 +1999,36 @@ class TestAliases(object):
         summary1 = op1(time_M=1, v=v1)
         expected_v = norm(v)
         assert np.isclose(expected_v, norm(v1), rtol=1e-5)
-        summary2 = op2(time_M=1, v=v2)
-        assert np.isclose(expected_v, norm(v2), rtol=1e-5)
 
         # Also check against expected operation count to make sure
         # all redundancies have been detected correctly
-        assert summary1[('section0', None)].ops == 19
-        assert summary2[('section0', None)].ops == 15
+        assert summary1[('section0', None)].ops == 14
+
+    def test_nested_first_derivatives_unbalanced(self):
+        grid = Grid(shape=(3, 3))
+
+        u = TimeFunction(name="u", grid=grid, time_order=2, space_order=4)
+
+        eq = Eq(u.forward, u.dx.dy + u*(u.dx.dy + 1.))
+
+        op = Operator(eq, opt=('cire-sops', {'cire-mingain': 0}))
+
+        # Make sure there are no undefined symbols
+        assert 'dummy' not in str(op)
+        op.apply(time_M=0)
 
     @switchconfig(profiling='advanced')
     @pytest.mark.parametrize('expr,exp_arrays,exp_ops', [
         ('f.dx.dx + g.dx.dx',
-         (1, 1, 2, (0, 1)), (46, 40, 49, 17)),
+         (1, 2, (0, 1)), (46, 61, 16)),
         ('v.dx.dx + p.dx.dx',
-         (2, 2, 2, (0, 2)), (61, 49, 49, 23)),
+         (2, 2, (0, 2)), (61, 61, 25)),
         ('(v.dx + v.dy).dx - (v.dx + v.dy).dy + 2*f.dx.dx + f*f.dy.dy + f.dx.dx(x0=1)',
-         (3, 3, 4, (0, 3)), (217, 199, 208, 76)),
+         (3, 3, (0, 3)), (217, 201, 74)),
         ('(g*(1 + f)*v.dx).dx + (2*g*f*v.dx).dx',
-         (1, 1, 2, (0, 1)), (50, 44, 53, 19)),
+         (1, 2, (0, 1)), (50, 65, 18)),
         ('g*(f.dx.dx + g.dx.dx)',
-         (1, 1, 2, (0, 1)), (47, 41, 50, 18)),
+         (1, 2, (0, 1)), (47, 62, 17)),
     ])
     def test_sum_of_nested_derivatives(self, expr, exp_arrays, exp_ops):
         """
@@ -1797,45 +2055,40 @@ class TestAliases(object):
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('collect-derivs', 'cire-sops', {'openmp': True}))
-        op2 = Operator(eqn, opt=('collect-derivs', 'cire-sops', {'openmp': True,
-                                                                 'cire-maxalias': True}))
-        op3 = Operator(eqn, opt=('cire-sops', {'openmp': True, 'cire-maxalias': True}))
-        op4 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-maxalias': True}))
+        op2 = Operator(eqn, opt=('cire-sops', {'openmp': True}))
+        op3 = Operator(eqn, opt=('advanced', {'openmp': True}))
 
         # Check code generation
         arrays = [i for i in FindSymbols().visit(op1) if i.is_Array]
         assert len(arrays) == exp_arrays[0]
         arrays = [i for i in FindSymbols().visit(op2) if i.is_Array]
         assert len(arrays) == exp_arrays[1]
-        arrays = [i for i in FindSymbols().visit(op3) if i.is_Array]
-        assert len(arrays) == exp_arrays[2]
-        arrays = [i for i in FindSymbols().visit(op4._func_table['bf0']) if i.is_Array]
-        exp_inv, exp_sops = exp_arrays[3]
+        arrays = [i for i in FindSymbols().visit(op3._func_table['bf0']) if i.is_Array]
+        exp_inv, exp_sops = exp_arrays[2]
         assert len(arrays) == exp_inv + exp_sops
-        assert len(FindNodes(VExpanded).visit(op4._func_table['bf0'])) == exp_sops
+        assert len(FindNodes(VExpanded).visit(op3._func_table['bf0'])) == exp_sops
 
         # Check numerical output
         op0(time_M=20)
         exp_v = norm(v)
-        for n, op in enumerate([op1, op2, op3, op4]):
+        for n, op in enumerate([op1, op2, op3]):
             v1 = TimeFunction(name="v", grid=grid, space_order=4)
             v1.data_with_halo[:] = 1.2
 
             summary = op(time_M=20, v=v1)
-            assert np.isclose(exp_v, norm(v1), atol=1e-11, rtol=1e-6)
+            assert np.isclose(exp_v, norm(v1), atol=1e-11, rtol=1e-5)
 
             # Also check against expected operation count to make sure
             # all redundancies have been detected correctly
             for i, exp in enumerate(as_tuple(exp_ops[n])):
                 assert summary[('section%d' % i, None)].ops == exp
 
-    @pytest.mark.xfail(reason="Cannot deal with multi-level aliases yet")
     def test_derivatives_from_different_levels(self):
         """
         Test catching of derivatives nested at different levels of the
         expression tree.
         """
-        grid = Grid(shape=(10, 10, 10))
+        grid = Grid(shape=(10, 10))
 
         f = Function(name='f', grid=grid, space_order=4)
         v = TimeFunction(name="v", grid=grid, space_order=4)
@@ -1845,12 +2098,12 @@ class TestAliases(object):
         v.data_with_halo[:] = 1.2
         v1.data_with_halo[:] = 1.2
 
-        eqn = Eq(v.forward, f*(1 + v).dx + 2*f*((1 + v).dx + f))
+        eqn = Eq(v.forward, f*(1. + v).dx + 2.*f*((1. + v).dx + f))
 
-        op = Operator(eqn, opt=('advanced', {'cire-mincost-sops': 3}))
+        op = Operator(eqn, opt=('advanced', {'cire-mingain': 0}))
 
         # Check code generation
-        assert len([i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array])
+        assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 1
 
     @pytest.mark.parametrize('rotate', [False, True])
     def test_maxpar_option(self, rotate):
@@ -1883,6 +2136,36 @@ class TestAliases(object):
         op1.apply(time_M=2, u=u1)
         assert np.isclose(norm(u), norm(u1), rtol=1e-5)
 
+    def test_maxpar_option_v2(self):
+        """
+        Another test for the compiler option `cire-maxpar=True`.
+        """
+        grid = Grid(shape=(10, 10, 10))
+
+        f = Function(name='f', grid=grid, space_order=4)
+        u = TimeFunction(name='u', grid=grid, space_order=4, save=10)
+        u1 = TimeFunction(name="u", grid=grid, space_order=4, save=10)
+
+        f.data[:] = 0.0012
+        u.data[0, :] = 1.3
+        u1.data[0, :] = 1.3
+
+        eq = Eq(u.forward, f*u.dx.dx)
+
+        op0 = Operator(eq, opt='noop')
+        op1 = Operator(eq, opt=('advanced', {'cire-maxpar': True}))
+
+        # Check code generation
+        xs, ys, zs = self.get_params(op1, 'x0_blk0_size', 'y0_blk0_size', 'z_size')
+        arrays = [i for i in FindSymbols().visit(op1._func_table['bf0']) if i.is_Array]
+        assert len(arrays) == 1
+        self.check_array(arrays[0], ((2, 2), (0, 0), (0, 0)), (xs+4, ys, zs))
+
+        # Check numerical output
+        op0.apply(time_M=2)
+        op1.apply(time_M=2, u=u1)
+        assert np.isclose(norm(u), norm(u1), rtol=1e-10)
+
     @pytest.mark.parametrize('rotate', [False, True])
     def test_blocking_options(self, rotate):
         """
@@ -1907,9 +2190,10 @@ class TestAliases(object):
         eq = Eq(u.forward, u.dx.dx + f*u.dy.dy)
 
         op0 = Operator(eq, opt='noop')
-        op1 = Operator(eq, opt=('advanced', {'blocklevels': 2, 'cire-rotate': rotate}))
+        op1 = Operator(eq, opt=('advanced', {'blocklevels': 2, 'cire-rotate': rotate,
+                                             'min-storage': True}))
         op2 = Operator(eq, opt=('advanced', {'blocklevels': 2, 'par-nested': 0,
-                                             'cire-rotate': rotate}))
+                                             'cire-rotate': rotate, 'min-storage': True}))
 
         # Check code generation
         assert len([i for i in op1.dimensions if i.is_Incr]) == 6 + (2 if rotate else 0)
@@ -1939,25 +2223,23 @@ class TestAliases(object):
         x0_blk0_size = 8
         y0_blk0_size = 8
 
-        f = Function(name='f', grid=grid)
         u = TimeFunction(name='u', grid=grid, space_order=3)
         u1 = TimeFunction(name="u", grid=grid, space_order=3)
         u2 = TimeFunction(name="u", grid=grid, space_order=3)
         u3 = TimeFunction(name="u", grid=grid, space_order=3)
 
-        f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 0.32
         u1.data_with_halo[:] = 0.32
         u2.data_with_halo[:] = 0.32
         u3.data_with_halo[:] = 0.32
 
-        eqn = Eq(u.forward, ((u[t, x, y, z] + u[t, x+1, y+1, z+1])*3*f +
-                             (u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3*f + 1))
+        eqn = Eq(u.forward, _R(_R(u[t, x, y, z] + u[t, x+1, y+1, z+1])*3. +
+                               _R(u[t, x+2, y+2, z+2] + u[t, x+3, y+3, z+3])*3.) + 1.)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mincost-sops': 1,
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-mingain': 0,
                                               'cire-ftemps': True}))
-        op2 = Operator(eqn, opt=('advanced-fsg', {'openmp': True, 'cire-mincost-sops': 1,
+        op2 = Operator(eqn, opt=('advanced-fsg', {'openmp': True, 'cire-mingain': 0,
                                                   'cire-ftemps': True}))
 
         op0(time_M=1, nthreads=nthreads)
@@ -1972,7 +2254,7 @@ class TestAliases(object):
         kwargs = {i.name: i for i in ofuncs}
         # Check numerical output of op1
         op1(time_M=1, u=u1, nthreads=nthreads, **kwargs)
-        assert np.allclose(u.data, u1.data, rtol=10e-8)
+        assert np.allclose(u.data, u1.data, rtol=10e-5)
 
         # Prepare to run op2
         ofuncs = [i.make(grid.shape) for i in op2.temporaries]
@@ -1980,7 +2262,7 @@ class TestAliases(object):
         kwargs = {i.name: i for i in ofuncs}
         # Check numerical output of op2
         op2(time_M=1, u=u2, **kwargs)
-        assert np.allclose(u.data, u2.data, rtol=10e-8)
+        assert np.allclose(u.data, u2.data, rtol=10e-5)
 
         # Again op2, but now with automatically derived shape
         ofuncs = [i.make(**u3._arg_values()) for i in op2.temporaries]
@@ -1988,7 +2270,7 @@ class TestAliases(object):
         kwargs = {i.name: i for i in ofuncs}
         # Check numerical output of op2
         op2(time_M=1, u=u3, **kwargs)
-        assert np.allclose(u.data, u3.data, rtol=10e-8)
+        assert np.allclose(u.data, u3.data, rtol=10e-5)
 
     @pytest.mark.parametrize('rotate', [False, True])
     def test_grouping_fallback(self, rotate):
@@ -2010,7 +2292,8 @@ class TestAliases(object):
         eqn = Eq(p.forward, ((1+sqrt(eps)) * p.dy).dy + (p.dz).dz)
 
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
-        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-rotate': rotate}))
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True, 'cire-rotate': rotate,
+                                              'min-storage': True}))
 
         # Check code generation
         # `min-storage` leads to one 2D and one 3D Arrays
@@ -2041,7 +2324,7 @@ class TestAliases(object):
 
         eqn = Eq(u.forward, (2*f*f*u.dy).dy + (3*f*u.dy).dy)
 
-        op = Operator(eqn, opt=('advanced', {'openmp': False, 'cire-maxalias': True}))
+        op = Operator(eqn, opt=('advanced', {'openmp': False, 'cire-mingain': 4}))
 
         arrays = [i for i in FindSymbols().visit(op._func_table['bf0']) if i.is_Array]
         assert len(arrays) == 1
@@ -2060,12 +2343,35 @@ class TestAliases(object):
 
         eqn = Eq(u.forward, u.dy.dy + 1., implicit_dims=[cond])
 
-        op = Operator(eqn, opt=('advanced', {'cire-mincost-sops': 1, 'openmp': True}))
+        op = Operator(eqn, opt=('advanced', {'cire-mingain': 0, 'openmp': True}))
 
         op.apply(time=8)
 
         assert len(FindNodes(Conditional).visit(op)) == 1
         assert np.all(u.data[6:] == 1.42)
+
+    def test_collection_from_conditional(self):
+        nt = 10
+        grid = Grid(shape=(10, 10))
+        time_dim = grid.time_dim
+
+        factor = Constant(name='factor', value=2, dtype=np.int32)
+        time_sub = ConditionalDimension(name="time_sub", parent=time_dim, factor=factor)
+        save_shift = Constant(name='save_shift', dtype=np.int32)
+
+        u = TimeFunction(name='u', grid=grid, space_order=4)
+        v = TimeFunction(name='v', grid=grid, space_order=4)
+        usave = TimeFunction(name='usave', grid=grid, time_order=0,
+                             save=int(nt//factor.data), time_dim=time_sub)
+        vsave = TimeFunction(name='vsave', grid=grid, time_order=0,
+                             save=int(nt//factor.data), time_dim=time_sub)
+
+        uss = usave.subs(time_sub, time_sub - save_shift)
+        vss = vsave.subs(time_sub, time_sub - save_shift)
+
+        eqn = Eq(u.forward, uss*u.dx.dx + vss*v.dy.dy)
+        op = Operator(eqn, opt=('advanced', {'cire-mingain': 1}))
+        assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 2
 
     def test_hoisting_pow_one(self):
         """
@@ -2128,8 +2434,8 @@ class TestIsoAcoustic(object):
         assert summary0[('section1', None)].ops == 151
         assert np.isclose(summary0[('section0', None)].oi, 2.851, atol=0.001)
 
-        assert summary1[('section0', None)].ops == 33
-        assert np.isclose(summary1[('section0', None)].oi, 1.882, atol=0.001)
+        assert summary1[('section0', None)].ops == 31
+        assert np.isclose(summary1[('section0', None)].oi, 1.767, atol=0.001)
 
         assert np.allclose(u0.data, u1.data, atol=10e-5)
         assert np.allclose(rec0.data, rec1.data, atol=10e-5)
@@ -2189,8 +2495,8 @@ class TestTTI(object):
         assert np.allclose(self.tti_noopt[1].data, rec.data, atol=10e-1)
 
         # Check expected opcount/oi
-        assert summary[('section1', None)].ops == 91
-        assert np.isclose(summary[('section1', None)].oi, 1.524, atol=0.001)
+        assert summary[('section1', None)].ops == 90
+        assert np.isclose(summary[('section1', None)].oi, 1.508, atol=0.001)
 
         # With optimizations enabled, there should be exactly four IncrDimensions
         op = wavesolver.op_fwd()
@@ -2236,19 +2542,30 @@ class TestTTI(object):
 
     @switchconfig(profiling='advanced')
     @pytest.mark.parametrize('space_order,expected', [
-        (8, 153), (16, 271)
+        (8, 152), (16, 270)
     ])
     def test_opcounts(self, space_order, expected):
         op = self.tti_operator(opt='advanced', space_order=space_order)
         sections = list(op.op_fwd()._profiler._sections.values())
         assert sections[1].sops == expected
 
+    @switchconfig(profiling='advanced')
+    @pytest.mark.parametrize('space_order,expected', [
+        (4, 111),
+    ])
+    def test_opcounts_adjoint(self, space_order, expected):
+        wavesolver = self.tti_operator(opt=('advanced', {'openmp': False}))
+        op = wavesolver.op_adj()
+
+        assert op._profiler._sections['section1'].sops == expected
+        assert len([i for i in FindSymbols().visit(op) if i.is_Array]) == 7
+
 
 class TestTTIv2(object):
 
     @switchconfig(profiling='advanced')
     @pytest.mark.parametrize('space_order,expected', [
-        (4, 212), (12, 420)
+        (4, 191), (12, 383)
     ])
     def test_opcounts(self, space_order, expected):
         grid = Grid(shape=(3, 3, 3))
@@ -2285,8 +2602,12 @@ class TestTTIv2(object):
 
         eqns = [Eq(u.forward, (2*u - u.backward) + s**2/m * (e * H2u + H1v)),
                 Eq(v.forward, (2*v - v.backward) + s**2/m * (d * H2v + H1v))]
-        op = Operator(eqns)
+        op = Operator(eqns, openmp=True)
 
+        # Check code generation
+        arrays = FindNodes(VExpanded).visit(op._func_table['bf0'])
+        assert len(arrays) == 4
+        assert all(len(i.pointee.shape) == 2 for i in arrays)  # Expected 2D arrays
         sections = list(op._profiler._sections.values())
         assert len(sections) == 2
         assert sections[0].sops == 4

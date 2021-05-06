@@ -60,7 +60,7 @@ def as_mapper(iterable, key=None, get=None):
     """
     key = key or (lambda i: i)
     get = get or (lambda i: i)
-    mapper = {}
+    mapper = OrderedDict()
     for i in iterable:
         mapper.setdefault(key(i), []).append(get(i))
     return mapper

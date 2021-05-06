@@ -1,12 +1,10 @@
 from functools import partial
 
-import numpy as np
-
 from devito.core.operator import CoreOperator, CustomOperator
 from devito.exceptions import InvalidOperator
 from devito.passes.equations import buffering, collect_derivatives
-from devito.passes.clusters import (Lift, blocking, cire, cse, eliminate_arrays,
-                                    extract_increments, factorize, fuse, optimize_pows)
+from devito.passes.clusters import (Lift, blocking, cire, cse, extract_increments,
+                                    factorize, fuse, optimize_pows)
 from devito.passes.iet import (CTarget, OmpTarget, avoid_denormals, mpiize,
                                optimize_halospots, hoist_prodders, relax_incr_dimensions)
 from devito.tools import timed_pass
@@ -24,17 +22,17 @@ class Cpu64OperatorMixin(object):
     3 => "blocks", "sub-blocks", and "sub-sub-blocks", ...
     """
 
-    CIRE_MINCOST_INV = 50
+    CIRE_MINGAIN = 10
     """
-    Minimum operation count of a Dimension-invariant aliasing expression to be
-    optimized away. Dimension-invariant aliases are lifted outside of one or more
-    invariant loop(s), so they require tensor temporaries that can be potentially
-    very large (e.g., the whole domain in the case of time-invariant aliases).
+    Minimum operation count reduction for a redundant expression to be optimized
+    away. Higher (lower) values make a redundant expression less (more) likely to
+    be optimized away.
     """
 
-    CIRE_MINCOST_SOPS = 10
+    CIRE_SCHEDULE = 'automatic'
     """
-    Minimum operation count of a sum-of-product aliasing expression to be optimized away.
+    Strategy used to schedule derivatives across loops. This impacts the operational
+    intensity of the generated kernel.
     """
 
     PAR_COLLAPSE_NCORES = 4
@@ -88,15 +86,9 @@ class Cpu64OperatorMixin(object):
         o['min-storage'] = oo.pop('min-storage', False)
         o['cire-rotate'] = oo.pop('cire-rotate', False)
         o['cire-maxpar'] = oo.pop('cire-maxpar', False)
-        o['cire-maxalias'] = oo.pop('cire-maxalias', False)
         o['cire-ftemps'] = oo.pop('cire-ftemps', False)
-        o['cire-mincost'] = {
-            'invariants': {
-                'scalar': np.inf,
-                'tensor': oo.pop('cire-mincost-inv', cls.CIRE_MINCOST_INV),
-            },
-            'sops': oo.pop('cire-mincost-sops', cls.CIRE_MINCOST_SOPS)
-        }
+        o['cire-mingain'] = oo.pop('cire-mingain', cls.CIRE_MINGAIN)
+        o['cire-schedule'] = oo.pop('cire-schedule', cls.CIRE_SCHEDULE)
 
         # Shared-memory parallelism
         o['par-collapse-ncores'] = oo.pop('par-collapse-ncores', cls.PAR_COLLAPSE_NCORES)
@@ -173,18 +165,16 @@ class Cpu64AdvOperator(Cpu64OperatorMixin, CoreOperator):
         # Blocking to improve data locality
         clusters = blocking(clusters, options)
 
-        # Reduce flops (potential arithmetic alterations)
+        # Reduce flops
         clusters = extract_increments(clusters, sregistry)
         clusters = cire(clusters, 'sops', sregistry, options, platform)
         clusters = factorize(clusters)
         clusters = optimize_pows(clusters)
 
-        # The previous passes may have created fusion opportunities, which in
-        # turn may enable further optimizations
+        # The previous passes may have created fusion opportunities
         clusters = fuse(clusters)
-        clusters = eliminate_arrays(clusters)
 
-        # Reduce flops (no arithmetic alterations)
+        # Reduce flops
         clusters = cse(clusters, sregistry)
 
         return clusters
@@ -260,10 +250,8 @@ class Cpu64FsgOperator(Cpu64AdvOperator):
         clusters = factorize(clusters)
         clusters = optimize_pows(clusters)
 
-        # The previous passes may have created fusion opportunities, which in
-        # turn may enable further optimizations
+        # The previous passes may have created fusion opportunities
         clusters = fuse(clusters)
-        clusters = eliminate_arrays(clusters)
 
         # Reduce flops (no arithmetic alterations)
         clusters = cse(clusters, sregistry)

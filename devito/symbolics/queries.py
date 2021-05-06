@@ -1,4 +1,4 @@
-from sympy import Eq, diff, nan
+from sympy import Eq, Mod, diff, nan
 
 from devito.tools import as_tuple, is_integer
 
@@ -6,7 +6,7 @@ from devito.tools import as_tuple, is_integer
 __all__ = ['q_leaf', 'q_indexed', 'q_terminal', 'q_function', 'q_routine', 'q_xop',
            'q_terminalop', 'q_indirect', 'q_constant', 'q_affine', 'q_linear',
            'q_identity', 'q_inc', 'q_symbol', 'q_multivar', 'q_monoaffine',
-           'q_dimension']
+           'q_dimension', 'q_positive']
 
 
 # The following SymPy objects are considered tree leaves:
@@ -196,6 +196,54 @@ def q_identity(expr, var):
     x + 2 -> True
     """
     return len(as_tuple(var)) == 1 and q_affine(expr, var) and (expr - var).is_Number
+
+
+def q_positive(expr):
+    """
+    Return True if `expr` is definitely positive, False otherwise.
+
+    Notes
+    -----
+    Consider a Relational in the form `X > 0`. Sometimes SymPy is either
+    unable to evaluate it (and thus return True/False) or it takes too long
+    to simplify `X` to produce an answer. This function, on the other hand,
+    is quick and focuses only on the cases of interest for Devito.
+    If False is returned, then `expr` may or may not be positive; IOW,
+    False simply means that it was not possible to determine an answer
+    to the query `X > 0`.
+    """
+    if not (expr.is_Add and len(expr.args) == 2):
+        return False
+
+    integer, maybe_mul = expr.args
+    if not (integer.is_Integer and integer > 0):
+        return False
+
+    if maybe_mul.is_Mul and len(maybe_mul.args) == 2:
+        sign, mod = maybe_mul.args
+        if sign != -1:
+            return False
+    else:
+        sign = 1
+        mod = maybe_mul
+
+    if not isinstance(mod, Mod):
+        return False
+
+    dividend, divisor = mod.args
+    if not (divisor.is_Integer and divisor > 0):
+        return False
+
+    # At this point we are in the form `X {+,-} (Y % p)`
+    # * if '+', then it's the sum of two positive numbers, so we're good
+    if sign == 1:
+        return True
+
+    # * if '-', instead, it only remains to ensure that X >= p
+    if integer >= divisor:
+        return True
+
+    return False
 
 
 def q_dimension(expr):

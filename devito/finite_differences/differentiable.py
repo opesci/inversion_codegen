@@ -2,17 +2,19 @@ from collections import ChainMap
 from functools import singledispatch
 
 import sympy
+from sympy.core.add import _addsort
+from sympy.core.mul import _mulsort
 from sympy.core.decorators import call_highest_priority
 from sympy.core.evalf import evalf_table
 
 from cached_property import cached_property
 from devito.finite_differences.tools import make_shift_x0
 from devito.logger import warning
-from devito.tools import filter_ordered, flatten
+from devito.tools import filter_ordered, flatten, split
 from devito.types.lazy import Evaluable
 from devito.types.utils import DimensionTuple
 
-__all__ = ['Differentiable']
+__all__ = ['Differentiable', 'EvalDerivative']
 
 
 class Differentiable(sympy.Expr, Evaluable):
@@ -300,6 +302,11 @@ class DifferentiableOp(Differentiable):
     __sympy_class__ = None
 
     def __new__(cls, *args, **kwargs):
+        # Do not re-evaluate if any of the args is an EvalDerivative,
+        # since the integrity of these objects must be preserved
+        if any(isinstance(i, EvalDerivative) for i in args):
+            kwargs['evaluate'] = False
+
         obj = cls.__base__.__new__(cls, *args, **kwargs)
 
         # Unfortunately SymPy may build new sympy.core objects (e.g., sympy.Add),
@@ -363,12 +370,44 @@ class DifferentiableFunction(DifferentiableOp):
 
 class Add(DifferentiableOp, sympy.Add):
     __sympy_class__ = sympy.Add
-    __new__ = DifferentiableOp.__new__
+
+    def __new__(cls, *args, **kwargs):
+        # Here, often we get `evaluate=False` to prevent SymPy evaluation (e.g.,
+        # when `cls==EvalDerivative`), but in all cases we at least apply a small
+        # sets of basic optimizations
+
+        # (a+b)+c -> a+b+c (flattening)
+        nested, others = split(args, lambda e: isinstance(e, Add))
+        args = flatten(e.args for e in nested) + list(others)
+
+        # a+0 -> a
+        args = [i for i in args if i != 0]
+
+        # Reorder for homogeneity with pure SymPy types
+        _addsort(args)
+
+        return super().__new__(cls, *args, **kwargs)
 
 
 class Mul(DifferentiableOp, sympy.Mul):
     __sympy_class__ = sympy.Mul
-    __new__ = DifferentiableOp.__new__
+
+    def __new__(cls, *args, **kwargs):
+        # A DifferentiableOp may not trigger evaluation upon construction
+        # (e.g., if an EvalDerivative is present among the arguments)
+        # So we treat some special cases here
+
+        # a*0 -> 0
+        if any(i == 0 for i in args):
+            return sympy.S.Zero
+
+        # a*1 -> a
+        args = [i for i in args if i != 1]
+
+        # Reorder for homogeneity with pure SymPy types
+        _mulsort(args)
+
+        return super().__new__(cls, *args, **kwargs)
 
     @property
     def _gather_for_diff(self):
@@ -411,17 +450,46 @@ class Mul(DifferentiableOp, sympy.Mul):
 class Pow(DifferentiableOp, sympy.Pow):
     _fd_priority = 0
     __sympy_class__ = sympy.Pow
-    __new__ = DifferentiableOp.__new__
 
 
 class Mod(DifferentiableOp, sympy.Mod):
     __sympy_class__ = sympy.Mod
-    __new__ = DifferentiableOp.__new__
 
 
 class EvalDerivative(DifferentiableOp, sympy.Add):
-    __sympy_class__ = sympy.Add
-    __new__ = DifferentiableOp.__new__
+
+    is_commutative = True
+
+    def __new__(cls, *args, base=None, **kwargs):
+        kwargs['evaluate'] = False
+
+        # a+0 -> a
+        args = [i for i in args if i != 0]
+
+        # Reorder for homogeneity with pure SymPy types
+        _addsort(args)
+
+        obj = super().__new__(cls, *args, **kwargs)
+
+        try:
+            obj.base = base
+        except AttributeError:
+            # This might happen if e.g. one attempts a (re)construction with
+            # one sole argument. The (re)constructed EvalDerivative degenerates
+            # to an object of different type, in classic SymPy style. That's fine
+            assert len(args) <= 1
+            assert not obj.is_Add
+            return obj
+
+        return obj
+
+    @property
+    def func(self):
+        return lambda *a, **kw: EvalDerivative(*a, base=self.base, **kw)
+
+    def _new_rawargs(self, *args, **kwargs):
+        kwargs.pop('is_commutative', None)
+        return self.func(*args, **kwargs)
 
 
 class diffify(object):
@@ -501,6 +569,9 @@ def diff2sympy(expr):
             return obj.__sympy_class__(*args, evaluate=False), True
         except AttributeError:
             # Not of type DifferentiableOp
+            pass
+        except TypeError:
+            # Won't lower (e.g., EvalDerivative)
             pass
         if flag:
             return obj.func(*args, evaluate=False), True

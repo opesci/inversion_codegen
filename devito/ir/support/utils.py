@@ -83,8 +83,7 @@ def build_iterators(mapper):
                 if d not in values:
                     values.append(d)
             elif d.is_Conditional:
-                # There are no iterators associated to a ConditionalDimension
-                continue
+                iterators.setdefault(d.root, [])
             else:
                 iterators.setdefault(d, [])
     return {k: tuple(v) for k, v in iterators.items()}

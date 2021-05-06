@@ -112,6 +112,8 @@ class CodePrinter(C99CodePrinter):
     def _print_Differentiable(self, expr):
         return "(" + self._print(expr._expr) + ")"
 
+    _print_EvalDerivative = C99CodePrinter._print_Add
+
     def _print_FunctionFromPointer(self, expr):
         indices = [self._print(i) for i in expr.params]
         return "%s->%s(%s)" % (expr.pointer, expr.function, ', '.join(indices))
