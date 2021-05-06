@@ -1,13 +1,13 @@
-from itertools import product
-
 import cgen
 
+from sympy import Min, Max
 from devito.ir.iet import (Expression, List, Prodder, FindNodes, FindSymbols,
-                           Transformer, make_efunc, compose_nodes, filter_iterations,
-                           retrieve_iteration_tree)
-from devito.passes.iet.engine import iet_pass
-from devito.tools import flatten, is_integer, split
+                           Transformer, filter_iterations, retrieve_iteration_tree)
+from devito.ir.support import Forward
 from devito.logger import warning
+from devito.passes.iet.engine import iet_pass
+from devito.symbolics import INT
+from devito.tools import split, is_integer
 
 __all__ = ['avoid_denormals', 'hoist_prodders', 'relax_incr_dimensions', 'is_on_device']
 
@@ -58,13 +58,26 @@ def hoist_prodders(iet):
 @iet_pass
 def relax_incr_dimensions(iet, **kwargs):
     """
-    Recast Iterations over IncrDimensions as ElementalFunctions; insert
-    ElementalCalls to iterate over the "main" and "remainder" regions induced
-    by the IncrDimensions.
-    """
-    sregistry = kwargs['sregistry']
+    This pass is transforming an IET to iterate over "main" and "remainder" regions.
+    IncrDimensions in the IET are not iterating over the whole domain, as they miss the
+    the remainder regions. The remainder regions include a number of iterations
+    that are less than a block's size iterations.
+    This function rebuilds Iterations over IncrDimensions. Min/Max conditions
+    are used to iterate over the whole domain using blocking.
 
-    efuncs = []
+    A simple example (blocking only), nested Iterations are
+    transformed from:
+
+    <Iteration x0_blk0; (x_m, x_M, x0_blk0_size)>
+        <Iteration x; (x0_blk0, x0_blk0 + x0_blk0_size - 1, 1)>
+
+    to:
+
+    <Iteration x0_blk0; (x_m, x_M, x0_blk0_size)>
+        <Iteration x; (x0_blk0, INT(Min(x_M, x0_blk0 + x0_blk0_size - 1)), 1)>
+
+    """
+
     mapper = {}
     for tree in retrieve_iteration_tree(iet):
         iterations = [i for i in tree if i.dim.is_Incr]
@@ -77,47 +90,68 @@ def relax_incr_dimensions(iet, **kwargs):
 
         outer, inner = split(iterations, lambda i: not i.dim.parent.is_Incr)
 
-        # Compute the iteration ranges
-        ranges = []
-        for i in outer:
-            maxb = i.symbolic_max - (i.symbolic_size % i.dim.step)
-            ranges.append(((i.symbolic_min, maxb, i.dim.step),
-                           (maxb + 1, i.symbolic_max, i.symbolic_max - maxb)))
+        # Get symbolic_max out of each outer dimension
+        roots_max = {i.dim.root: i.symbolic_max for i in outer}
 
-        # Remove any offsets
-        # E.g., `x = x_m + 2 to x_M - 2` --> `x = x_m to x_M`
-        outer = [i._rebuild(limits=(i.dim.root.symbolic_min, i.dim.root.symbolic_max,
-                                    i.step))
-                 for i in outer]
+        # A dictionary to map maximum of parent dimensions
+        # useful for hierarchical blocking
+        proc_parents_max = {}
 
-        # Create the ElementalFunction
-        name = sregistry.make_name(prefix="bf")
-        body = compose_nodes(outer)
-        dynamic_parameters = flatten((i.symbolic_bounds, i.step) for i in outer)
-        dynamic_parameters.extend([i.step for i in inner if not is_integer(i.step)])
-        efunc = make_efunc(name, body, dynamic_parameters)
+        # Process inner iterations
+        for n, i in enumerate(inner):
+            assert i.direction is Forward
+            if (i.dim.parent in proc_parents_max and
+               i.symbolic_size == i.dim.parent.step):
+                # Special case: A parent dimension may have already been processed
+                # as a member of 'inner' iterations. In this case we can use parent's
+                # Max
+                # Usually encountered in hierarchical blocking (BLOCKLEVELS > 1)
+                it_max = proc_parents_max[i.dim.parent]
+            else:
+                # Most of the cases pass though this code:
+                # Candidates for upper bound calculation are:
+                # Candidate 1: symbolic_max of current iteration
+                # e.g.
+                # i.symbolic_max = x0_blk0 + x0_blk0_size
+                symbolic_max = i.symbolic_max
 
-        efuncs.append(efunc)
+                # Candidate 2: The domain max. Usualy it is the max of parent/root
+                # dimension.
+                # e.g. x_M
+                # This may not always be true as the symbolic_size of an Iteration may
+                # exceed the size of a parent's block size (e.g. after CIRE passes)
+                # e.g.
+                # i.dim.parent.step = x0_blk1_size
+                # i.symbolic_size = x0_blk1_size + 4
 
-        # Create the ElementalCalls
-        calls = []
-        for p in product(*ranges):
-            dynamic_args_mapper = {}
-            for i, (m, M, b) in zip(outer, p):
-                dynamic_args_mapper[i.symbolic_min] = m
-                dynamic_args_mapper[i.symbolic_max] = M
-                dynamic_args_mapper[i.step] = b
-                for j in inner:
-                    if j.dim.root is i.dim.root and not is_integer(j.step):
-                        value = j.step if b is i.step else b
-                        dynamic_args_mapper[j.step] = (value,)
-            calls.append(efunc.make_call(dynamic_args_mapper))
+                # For this case, proper margin should be allowed
+                # in order not to drop iterations. So Candidate 2 is the maximum of the
+                # root's max and the current iteration's required max
+                # and instead of `x_M` we may need `x_M + 1` or `x_M + 2`
+                root_max = roots_max[i.dim.root]
 
-        mapper[root] = List(body=calls)
+                lb_margin = i.symbolic_min - i.dim.symbolic_min
+                size_margin = i.symbolic_size - i.dim.parent.step
+                upper_margin = i.dim.parent.symbolic_max + size_margin + lb_margin
 
-    iet = Transformer(mapper).visit(iet)
+                # Domain max candidate
+                # e.g. domain_max = Max(x_M + 1, x_M)
+                domain_max = Max(upper_margin, root_max)
 
-    return iet, {'efuncs': efuncs}
+                # Finally our upper bound is the minimum of upper bound candidates
+                # e.g. upper_bound = Min(x0_blk0 + x0_blk0_size, domain_max)
+                it_max = Min(symbolic_max, domain_max)
+
+            # Store the selected maximum of this iteration's dimension for
+            # possible reference in case of children iterations
+            # Usually encountered in subdims and hierarchical blocking
+            proc_parents_max[i.dim] = it_max
+
+            mapper[i] = i._rebuild(limits=(i.symbolic_min, INT(it_max), i.step))
+
+    iet = Transformer(mapper, nested=True).visit(iet)
+
+    return iet, {'efuncs': []}
 
 
 def is_on_device(maybe_symbol, gpu_fit, only_writes=False):

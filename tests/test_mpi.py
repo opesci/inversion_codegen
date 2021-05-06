@@ -850,19 +850,17 @@ class TestCodeGeneration(object):
 
         op = Operator(eqns)
 
-        assert len(op._func_table) == 6
+        assert len(op._func_table) == 4
 
         # There are exactly two halo exchange calls in the Operator body
         calls = FindNodes(Call).visit(op)
-        assert len(calls) == 2 + 8  # 8 are due to loop blocking
+        assert len(calls) == 2 + 0  # 0 are due to loop blocking
         assert calls[0].name == 'haloupdate0'
         assert calls[1].name == 'haloupdate0'
 
         # ... and none in the created efuncs
-        calls = FindNodes(Call).visit(op._func_table['bf0'].root)
-        assert len(calls) == 0
-        calls = FindNodes(Call).visit(op._func_table['bf1'].root)
-        assert len(calls) == 0
+        calls = FindNodes(Call).visit(op)
+        assert len(calls) == 2
 
     @pytest.mark.parallel(mode=1)
     def test_hoist_haloupdate_from_innerloop(self):
@@ -1172,6 +1170,7 @@ class TestCodeGeneration(object):
         assert len(trees) == 2
         tree = trees[0]
         # Make sure `pokempi0` is the last node within the outer Iteration
+
         assert len(tree) == 2
         assert len(tree.root.nodes) == 2
         call = tree.root.nodes[1]
@@ -1189,13 +1188,11 @@ class TestCodeGeneration(object):
         # Now we do as before, but enforcing loop blocking (by default off,
         # as heuristically it is not enabled when the Iteration nest has depth < 3)
         op = Operator(eqn, opt=('advanced', {'blockinner': True, 'par-dynamic-work': 0}))
-        trees = retrieve_iteration_tree(op._func_table['bf0'].root)
-        assert len(trees) == 2
-        tree = trees[1]
+
         # Make sure `pokempi0` is the last node within the inner Iteration over blocks
         assert len(tree) == 2
-        assert len(tree.root.nodes[0].nodes) == 2
-        call = tree.root.nodes[0].nodes[1]
+        assert len(tree.root.nodes) == 2
+        call = tree.root.nodes[1]
         assert call.name == 'pokempi0'
         assert call.arguments[0].name == 'msg0'
         if configuration['language'] == 'openmp':
@@ -1888,14 +1885,13 @@ class TestOperatorAdvanced(object):
         op1 = Operator(eqn, opt=('advanced', opt_options))
 
         # Check generated code
-        arrays = [i for i in FindSymbols().visit(op1._func_table['bf0']) if i.is_Array]
+        arrays = [i for i in FindSymbols().visit(op1) if i.is_Array]
         assert len(arrays) == 3
         assert 'haloupdate0' in op1._func_table
         # We expect exactly one halo exchange
         calls = FindNodes(Call).visit(op1)
-        assert len(calls) == 5
+        assert len(calls) == 1
         assert calls[0].name == 'haloupdate0'
-        assert all(i.name == 'bf0' for i in calls[1:])
 
         op0.apply(time_M=1)
         op1.apply(time_M=1, p=p1)

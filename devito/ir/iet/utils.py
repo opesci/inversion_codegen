@@ -1,9 +1,9 @@
-from devito.ir.iet import Iteration, List, IterationTree, FindSections, FindSymbols
+from devito.ir.iet import IterationTree, FindSections, FindSymbols
 from devito.symbolics import Literal, Macro
 from devito.tools import flatten, split
 from devito.types import Array, LocalObject
 
-__all__ = ['filter_iterations', 'retrieve_iteration_tree', 'compose_nodes',
+__all__ = ['filter_iterations', 'retrieve_iteration_tree',
            'derive_parameters', 'diff_parameters']
 
 
@@ -20,7 +20,7 @@ def retrieve_iteration_tree(node, mode='normal'):
            Iteration i
              expr0
              Iteration j
-               Iteraion k
+               Iteration k
                  expr1
              Iteration p
                expr2
@@ -64,29 +64,6 @@ def filter_iterations(tree, key=lambda i: i):
         elif len(filtered) > 0:
             break
     return filtered
-
-
-def compose_nodes(nodes, retrieve=False):
-    """Build an IET by nesting ``nodes``."""
-    l = list(nodes)
-    tree = []
-
-    if not isinstance(l[0], Iteration):
-        # Nothing to compose
-        body = flatten(l)
-        body = List(body=body) if len(body) > 1 else body[0]
-    else:
-        body = l.pop(-1)
-        while l:
-            handle = l.pop(-1)
-            body = handle._rebuild(body, **handle.args_frozen)
-            tree.append(body)
-
-    if retrieve is True:
-        tree = list(reversed(tree))
-        return body, tree
-    else:
-        return body
 
 
 def derive_parameters(iet, drop_locals=False):

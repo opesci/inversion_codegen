@@ -81,8 +81,8 @@ def test_composite_transformation(shape):
 
 
 @pytest.mark.parametrize("blockinner,exp_calls,exp_iters", [
-    (False, 4, 5),
-    (True, 8, 6)
+    (False, 0, 6),
+    (True, 0, 7)
 ])
 def test_cache_blocking_structure(blockinner, exp_calls, exp_iters):
     # Check code structure
@@ -91,14 +91,14 @@ def test_cache_blocking_structure(blockinner, exp_calls, exp_iters):
                                              'par-collapse-ncores': 1}))
     calls = FindNodes(Call).visit(op)
     assert len(calls) == exp_calls
-    trees = retrieve_iteration_tree(op._func_table['bf0'].root)
+    trees = [i for i in retrieve_iteration_tree(op)]
     assert len(trees) == 1
     tree = trees[0]
     assert len(tree) == exp_iters
     if blockinner:
-        assert all(tree[i].dim.is_Incr for i in range(exp_iters))
+        assert all(tree[i].dim.is_Incr for i in range(1, exp_iters))
     else:
-        assert all(tree[i].dim.is_Incr for i in range(exp_iters-1))
+        assert all(tree[i].dim.is_Incr for i in range(1, exp_iters-1))
         assert not tree[-1].dim.is_Incr
 
     # Check presence of openmp pragmas at the right place
@@ -106,20 +106,17 @@ def test_cache_blocking_structure(blockinner, exp_calls, exp_iters):
                            opt=('blocking', {'openmp': True,
                                              'blockinner': blockinner,
                                              'par-collapse-ncores': 1}))
-    trees = retrieve_iteration_tree(op._func_table['bf0'].root)
+    trees = retrieve_iteration_tree(op)
     assert len(trees) == 1
     tree = trees[0]
-    assert len(tree.root.pragmas) == 1
-    assert 'omp for' in tree.root.pragmas[0].value
+    assert len(tree.root.pragmas) == 0
+    assert 'omp for' in trees[0][1].pragmas[0].value
     # Also, with omp parallelism enabled, the step increment must be != 0
     # to avoid omp segfaults at scheduling time (only certain omp implementations,
     # including Intel's)
-    conditionals = FindNodes(Conditional).visit(op._func_table['bf0'].root)
-    assert len(conditionals) == 1
-    conds = conditionals[0].condition.args
-    expected_guarded = tree[:2+blockinner]
-    assert len(conds) == len(expected_guarded)
-    assert all(i.lhs == j.step for i, j in zip(conds, expected_guarded))
+    conditionals = FindNodes(Conditional).visit(op)
+
+    assert len(conditionals) == 0
 
 
 def test_cache_blocking_structure_subdims():
@@ -145,17 +142,19 @@ def test_cache_blocking_structure_subdims():
 
     # Non-local SubDimension -> blocking expected
     op = Operator(Eq(f.forward, f + 1, subdomain=grid.interior))
-    trees = retrieve_iteration_tree(op._func_table['bf0'].root)
+    trees = [i for i in retrieve_iteration_tree(op)]
+
     assert len(trees) == 1
     tree = trees[0]
-    assert len(tree) == 5
-    assert tree[0].dim.is_Incr and tree[0].dim.parent is xi and tree[0].dim.root is x
-    assert tree[1].dim.is_Incr and tree[1].dim.parent is yi and tree[1].dim.root is y
-    assert tree[2].dim.is_Incr and tree[2].dim.parent is tree[0].dim and\
-        tree[2].dim.root is x
+    assert len(tree) == 6
+
+    assert tree[1].dim.is_Incr and tree[1].dim.parent is xi and tree[1].dim.root is x
+    assert tree[2].dim.is_Incr and tree[2].dim.parent is yi and tree[2].dim.root is y
     assert tree[3].dim.is_Incr and tree[3].dim.parent is tree[1].dim and\
-        tree[3].dim.root is y
-    assert not tree[4].dim.is_Incr and tree[4].dim is zi and tree[4].dim.parent is z
+        tree[3].dim.root is x
+    assert tree[4].dim.is_Incr and tree[4].dim.parent is tree[2].dim and\
+        tree[4].dim.root is y
+    assert not tree[5].dim.is_Incr and tree[5].dim is zi and tree[5].dim.parent is z
 
 
 @pytest.mark.parallel(mode=[(1, 'full')])  # Shortcut to put loops in nested efuncs
@@ -177,15 +176,14 @@ def test_cache_blocking_structure_multiple_efuncs():
 
     op = Operator(eqns)
 
-    for i in ['bf0', 'bf1']:
-        assert i in op._func_table
-        iters = FindNodes(Iteration).visit(op._func_table[i].root)
-        assert len(iters) == 5
-        assert iters[0].dim.parent is x
-        assert iters[1].dim.parent is y
-        assert iters[4].dim is z
-        assert iters[2].dim.parent is iters[0].dim
-        assert iters[3].dim.parent is iters[1].dim
+    assert len(op._func_table) == 7
+    iters = FindNodes(Iteration).visit(op)
+    assert len(iters) == 7
+    assert iters[2].dim.parent is x
+    assert iters[3].dim.parent is y
+    assert iters[6].dim is z
+    assert iters[4].dim.parent is iters[2].dim
+    assert iters[5].dim.parent is iters[3].dim
 
 
 @pytest.mark.parametrize("shape", [(10,), (10, 45), (20, 33), (10, 31, 45), (45, 31, 45)])
@@ -288,15 +286,20 @@ def test_cache_blocking_imperfect_nest(blockinner):
     op1 = Operator(eqns, opt=('advanced', {'blockinner': blockinner}))
 
     # First, check the generated code
-    trees = retrieve_iteration_tree(op1._func_table['bf0'].root)
+    trees = [i for i in retrieve_iteration_tree(op1)]
+
     assert len(trees) == 2
     assert len(trees[0]) == len(trees[1])
-    assert all(i is j for i, j in zip(trees[0][:4], trees[1][:4]))
-    assert trees[0][4] is not trees[1][4]
-    assert trees[0].root.dim.is_Incr
-    assert trees[1].root.dim.is_Incr
-    assert op1.parameters[7] is trees[0][0].step
-    assert op1.parameters[10] is trees[0][1].step
+    assert all(i is j for i, j in zip(trees[0][:5], trees[1][:5]))
+    assert trees[0][4] is not trees[1][5]
+    assert all(i.dim.is_Incr for i in trees[0][1:5])
+    assert all(i.dim.is_Incr for i in trees[1][1:5])
+
+    assert op1.parameters[7] is trees[0][1].step
+    assert op1.parameters[7] is trees[1][1].step
+
+    assert op1.parameters[10] is trees[0][2].step
+    assert op1.parameters[10] is trees[1][2].step
 
     u.data[:] = 0.2
     v.data[:] = 1.5
@@ -333,14 +336,18 @@ def test_cache_blocking_imperfect_nest_v2(blockinner):
     op2 = Operator(eq, opt=('advanced-fsg', {'blockinner': blockinner}))
 
     # First, check the generated code
-    trees = retrieve_iteration_tree(op2._func_table['bf0'].root)
+    trees = [i for i in retrieve_iteration_tree(op2) if len(i) > 1]
+
     assert len(trees) == 2
     assert len(trees[0]) == len(trees[1])
-    assert all(i is j for i, j in zip(trees[0][:2], trees[1][:2]))
-    assert trees[0][2] is not trees[1][2]
-    assert trees[0].root.dim.is_Incr
-    assert trees[1].root.dim.is_Incr
-    assert op2.parameters[6] is trees[0].root.step
+    assert all(i is j for i, j in zip(trees[0][:3], trees[1][:3]))
+    assert trees[0][2] is trees[1][2]
+    assert trees[0][3] is not trees[1][3]
+    assert all(i.dim.is_Incr for i in trees[0][1:3])
+    assert all(i.dim.is_Incr for i in trees[1][1:3])
+
+    assert op2.parameters[6] is trees[0][1].step
+    assert op2.parameters[6] is trees[1][1].step
 
     op0(time_M=0)
 
@@ -473,7 +480,7 @@ class TestNodeParallelism(object):
     @pytest.mark.parametrize('eqns,expected,blocking', [
         ('[Eq(f, 2*f)]', [2, 0, 0], False),
         ('[Eq(u, 2*u)]', [0, 2, 0, 0], False),
-        ('[Eq(u, 2*u)]', [3, 0, 0, 0, 0, 0], True),
+        ('[Eq(u, 2*u)]', [0, 3, 0, 0, 0, 0, 0], True),
         ('[Eq(u, 2*u), Eq(f, u.dzr)]', [0, 2, 0, 0, 0], False)
     ])
     def test_collapsing(self, eqns, expected, blocking):
@@ -488,7 +495,7 @@ class TestNodeParallelism(object):
             op = Operator(eqns, opt=('blocking', 'simd', 'openmp',
                                      {'blockinner': True, 'par-collapse-ncores': 1,
                                       'par-collapse-work': 0}))
-            iterations = FindNodes(Iteration).visit(op._func_table['bf0'])
+            iterations = FindNodes(Iteration).visit(op)
         else:
             op = Operator(eqns, opt=('simd', 'openmp', {'par-collapse-ncores': 1,
                                                         'par-collapse-work': 0}))
@@ -642,9 +649,9 @@ class TestNestedParallelism(object):
         assert np.all(u.data[0] == 10)
         assert op.arguments(t_M=9, nthreads_nested=2)['nthreads_nested'] == 2
 
-        iterations = FindNodes(Iteration).visit(op._func_table['bf0'])
-        assert iterations[0].pragmas[0].value == 'omp for collapse(1) schedule(dynamic,1)'
-        assert iterations[2].pragmas[0].value == ('omp parallel for collapse(1) '
+        iterations = FindNodes(Iteration).visit(op)
+        assert iterations[1].pragmas[0].value == 'omp for collapse(1) schedule(dynamic,1)'
+        assert iterations[3].pragmas[0].value == ('omp parallel for collapse(1) '
                                                   'schedule(dynamic,1) '
                                                   'num_threads(nthreads_nested)')
 
@@ -666,9 +673,9 @@ class TestNestedParallelism(object):
         op.apply(t_M=9)
         assert np.all(u.data[0] == 10)
 
-        iterations = FindNodes(Iteration).visit(op._func_table['bf0'])
-        assert iterations[0].pragmas[0].value == 'omp for collapse(2) schedule(dynamic,1)'
-        assert iterations[2].pragmas[0].value == ('omp parallel for collapse(2) '
+        iterations = FindNodes(Iteration).visit(op)
+        assert iterations[1].pragmas[0].value == 'omp for collapse(2) schedule(dynamic,1)'
+        assert iterations[3].pragmas[0].value == ('omp parallel for collapse(2) '
                                                   'schedule(dynamic,1) '
                                                   'num_threads(nthreads_nested)')
 
@@ -688,16 +695,18 @@ class TestNestedParallelism(object):
                                              'par-collapse-ncores': 1,
                                              'par-dynamic-work': 0}))
 
-        trees = retrieve_iteration_tree(op._func_table['bf0'].root)
-        assert len(trees) == 2
+        trees = retrieve_iteration_tree(op)
+        assert len(trees) == 3
 
-        assert trees[0][0] is trees[1][0]
-        assert trees[0][0].pragmas[0].value ==\
+        assert trees[1][0] is trees[2][0]
+        assert trees[1][1].pragmas[0].value ==\
             'omp for collapse(2) schedule(dynamic,1)'
-        assert trees[0][2].pragmas[0].value == ('omp parallel for collapse(2) '
+        assert trees[2][1].pragmas[0].value ==\
+            'omp for collapse(2) schedule(dynamic,1)'
+        assert trees[1][3].pragmas[0].value == ('omp parallel for collapse(2) '
                                                 'schedule(dynamic,1) '
                                                 'num_threads(nthreads_nested)')
-        assert trees[1][2].pragmas[0].value == ('omp parallel for collapse(2) '
+        assert trees[2][3].pragmas[0].value == ('omp parallel for collapse(2) '
                                                 'schedule(dynamic,1) '
                                                 'num_threads(nthreads_nested)')
 
@@ -722,19 +731,21 @@ class TestNestedParallelism(object):
                                              'par-collapse-ncores': 1,
                                              'par-dynamic-work': 0}))
 
-        trees = retrieve_iteration_tree(op._func_table['bf0'].root)
-        assert len(trees) == 2
+        trees = retrieve_iteration_tree(op)
+        assert len(trees) == 3
 
-        assert trees[0][0] is trees[1][0]
-        assert trees[0][0].pragmas[0].value ==\
+        assert trees[1][0] is trees[2][0]
+        assert trees[1][1].pragmas[0].value ==\
             'omp for collapse(2) schedule(dynamic,1)'
-        assert not trees[0][2].pragmas
-        assert not trees[0][3].pragmas
-        assert trees[0][4].pragmas[0].value == ('omp parallel for collapse(1) '
+        assert not trees[1][2].pragmas
+        assert not trees[1][3].pragmas
+        assert trees[1][5].pragmas[0].value == ('omp parallel for collapse(1) '
                                                 'schedule(dynamic,1) '
                                                 'num_threads(nthreads_nested)')
-        assert not trees[1][2].pragmas
-        assert trees[1][3].pragmas[0].value == ('omp parallel for collapse(1) '
+
+        assert all(not i.pragmas for i in trees[1][2:5])
+
+        assert trees[2][4].pragmas[0].value == ('omp parallel for collapse(1) '
                                                 'schedule(dynamic,1) '
                                                 'num_threads(nthreads_nested)')
 
@@ -762,32 +773,70 @@ class TestNestedParallelism(object):
                            {'par-nested': 0, 'blocklevels': blocklevels,
                             'par-collapse-ncores': 2,
                             'par-dynamic-work': 0}))
-        trees = retrieve_iteration_tree(op._func_table['bf0'].root)
+        trees = retrieve_iteration_tree(op)
         assert len(trees) == 1
         tree = trees[0]
-        assert len(tree) == 5 + (blocklevels - 1) * 2
-        assert tree[0].dim.is_Incr and tree[0].dim.parent is xi and tree[0].dim.root is x
-        assert tree[1].dim.is_Incr and tree[1].dim.parent is yi and tree[1].dim.root is y
-        assert tree[2].dim.is_Incr and tree[2].dim.parent is tree[0].dim and\
-            tree[2].dim.root is x
+        assert len(tree) == 6 + (blocklevels - 1) * 2
+        assert tree[1].dim.is_Incr and tree[1].dim.parent is xi and tree[1].dim.root is x
+        assert tree[2].dim.is_Incr and tree[2].dim.parent is yi and tree[2].dim.root is y
         assert tree[3].dim.is_Incr and tree[3].dim.parent is tree[1].dim and\
-            tree[3].dim.root is y
+            tree[1].dim.root is x
+        assert tree[4].dim.is_Incr and tree[4].dim.parent is tree[2].dim and\
+            tree[2].dim.root is y
 
         if blocklevels == 1:
-            assert not tree[4].dim.is_Incr and tree[4].dim is zi and\
-                tree[4].dim.parent is z
+            assert not tree[5].dim.is_Incr and tree[5].dim is zi and\
+                tree[5].dim.parent is z
         elif blocklevels == 2:
-            assert tree[3].dim.is_Incr and tree[3].dim.parent is tree[1].dim and\
-                tree[3].dim.root is y
             assert tree[4].dim.is_Incr and tree[4].dim.parent is tree[2].dim and\
-                tree[4].dim.root is x
+                tree[2].dim.root is y
             assert tree[5].dim.is_Incr and tree[5].dim.parent is tree[3].dim and\
-                tree[5].dim.root is y
-            assert not tree[6].dim.is_Incr and tree[6].dim is zi and\
-                tree[6].dim.parent is z
+                tree[3].dim.root is x
+            assert tree[6].dim.is_Incr and tree[6].dim.parent is tree[4].dim and\
+                tree[4].dim.root is y
+            assert not tree[7].dim.is_Incr and tree[7].dim is zi and\
+                tree[7].dim.parent is z
 
-        assert trees[0][0].pragmas[0].value ==\
+        assert trees[0][1].pragmas[0].value ==\
             'omp for collapse(2) schedule(dynamic,1)'
-        assert trees[0][2].pragmas[0].value == ('omp parallel for collapse(2) '
+        assert trees[0][3].pragmas[0].value == ('omp parallel for collapse(2) '
                                                 'schedule(dynamic,1) '
                                                 'num_threads(nthreads_nested)')
+
+    @pytest.mark.parametrize('exprs,collapsed,scheduling', [
+        (['Eq(u.forward, u + 2)'],
+         '2', 'static'),
+        (['Eq(u.forward, u.dx)'],
+         '2', 'static'),
+        (['Eq(u.forward, u.dy)'],
+         '1', 'static'),
+        (['Eq(u.forward, u.dx.dx)'],
+         '2', 'dynamic'),
+        (['Eq(u.forward, u.dy.dy)'],
+         '1', 'dynamic'),
+    ])
+    def test_collapsing_w_wo_halo(self, exprs, collapsed, scheduling):
+        """
+        This test ensures correct number of
+        collapsed loops and scheduling for several expressions
+        based on the amount of work (par-dynamic-work).
+        """
+
+        grid = Grid(shape=(10, 10, 10))
+
+        u = TimeFunction(name='u', grid=grid, space_order=4) # noqa
+
+        eqns = []
+        for e in exprs:
+            eqns.append(eval(e))
+
+        op = Operator(eqns, opt=('blocking', 'openmp',
+                                 {'par-collapse-ncores': 1,
+                                  'par-dynamic-work': 20}))
+
+        # Does it compile? Honoring the OpenMP specification isn't trivial
+        assert op.cfunction
+        iterations = FindNodes(Iteration).visit(op)
+        ompfor_string = str('omp for collapse('+collapsed+') ')
+        scheduling_string = str('schedule('+scheduling+',1)')
+        assert iterations[1].pragmas[0].value == ompfor_string+scheduling_string
