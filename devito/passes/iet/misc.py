@@ -3,6 +3,7 @@ import cgen
 from sympy import Min, Max
 from devito.ir.iet import (Expression, List, Prodder, FindNodes, FindSymbols,
                            Transformer, filter_iterations, retrieve_iteration_tree)
+from devito.ir.support import Forward
 from devito.logger import warning
 from devito.passes.iet.engine import iet_pass
 from devito.symbolics import INT
@@ -57,8 +58,12 @@ def hoist_prodders(iet):
 @iet_pass
 def relax_incr_dimensions(iet, **kwargs):
     """
+    This pass is transforming an IET to iterate over "main" and "remainder" regions.
+    IncrDimensions in the IET are not iterating over the whole domain, as they miss the
+    the remainder regions. The remainder regions include a number of iterations
+    that are less than a block's size iterations.
     This function rebuilds Iterations over IncrDimensions. Min/Max conditions
-    are used to iterate using blocking.
+    are used to iterate over the whole domain using blocking.
 
     A simple example (blocking only), nested Iterations are
     transformed from:
@@ -73,7 +78,6 @@ def relax_incr_dimensions(iet, **kwargs):
 
     """
 
-    efuncs = []
     mapper = {}
     for tree in retrieve_iteration_tree(iet):
         iterations = [i for i in tree if i.dim.is_Incr]
@@ -84,7 +88,6 @@ def relax_incr_dimensions(iet, **kwargs):
         if root in mapper:
             continue
 
-        # Split iterations to outer and inner
         outer, inner = split(iterations, lambda i: not i.dim.parent.is_Incr)
 
         # Get symbolic_max out of each outer dimension
@@ -96,23 +99,27 @@ def relax_incr_dimensions(iet, **kwargs):
 
         # Process inner iterations
         for n, i in enumerate(inner):
+            assert i.direction is Forward
             if (i.dim.parent in proc_parents_max and
                i.symbolic_size == i.dim.parent.step):
                 # Special case: A parent dimension may have already been processed
                 # as a member of 'inner' iterations. In this case we can use parent's
-                # upper bound
-                # Usually encountered in hierarchical blocking
-                upper_bound = proc_parents_max[i.dim.parent]
+                # Max
+                # Usually encountered in hierarchical blocking (BLOCKLEVELS > 1)
+                it_max = proc_parents_max[i.dim.parent]
             else:
                 # Most of the cases pass though this code:
                 # Candidates for upper bound calculation are:
                 # Candidate 1: symbolic_max of current iteration
-                # symbolic_max = i.symbolic_max
+                # e.g.
+                # i.symbolic_max = x0_blk0 + x0_blk0_size
+                symbolic_max = i.symbolic_max
 
                 # Candidate 2: The domain max. Usualy it is the max of parent/root
                 # dimension.
-                # Corner case: The symbolic_size of an Iteration may exceed the size of
-                # a parent's block size.
+                # e.g. x_M
+                # This may not always be true as the symbolic_size of an Iteration may
+                # exceed the size of a parent's block size (e.g. after CIRE passes)
                 # e.g.
                 # i.dim.parent.step = x0_blk1_size
                 # i.symbolic_size = x0_blk1_size + 4
@@ -120,28 +127,31 @@ def relax_incr_dimensions(iet, **kwargs):
                 # For this case, proper margin should be allowed
                 # in order not to drop iterations. So Candidate 2 is the maximum of the
                 # root's max and the current iteration's required max
+                # and instead of `x_M` we may need `x_M + 1` or `x_M + 2`
                 root_max = roots_max[i.dim.root]
 
                 lb_margin = i.symbolic_min - i.dim.symbolic_min
                 size_margin = i.symbolic_size - i.dim.parent.step
-                upper_ext = i.dim.parent.symbolic_max + size_margin + lb_margin
+                upper_margin = i.dim.parent.symbolic_max + size_margin + lb_margin
 
-                # Upper bound candidate
-                domain_max = Max(upper_ext, root_max)
+                # Domain max candidate
+                # e.g. domain_max = Max(x_M + 1, x_M)
+                domain_max = Max(upper_margin, root_max)
 
                 # Finally our upper bound is the minimum of upper bound candidates
-                upper_bound = Min(i.symbolic_max, domain_max)
+                # e.g. upper_bound = Min(x0_blk0 + x0_blk0_size, domain_max)
+                it_max = Min(symbolic_max, domain_max)
 
             # Store the selected maximum of this iteration's dimension for
             # possible reference in case of children iterations
             # Usually encountered in subdims and hierarchical blocking
-            proc_parents_max[i.dim] = upper_bound
+            proc_parents_max[i.dim] = it_max
 
-            mapper[i] = i._rebuild(limits=(i.symbolic_min, INT(upper_bound), i.step))
+            mapper[i] = i._rebuild(limits=(i.symbolic_min, INT(it_max), i.step))
 
     iet = Transformer(mapper, nested=True).visit(iet)
 
-    return iet, {'efuncs': efuncs}
+    return iet, {'efuncs': []}
 
 
 def is_on_device(maybe_symbol, gpu_fit, only_writes=False):

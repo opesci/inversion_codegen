@@ -2121,7 +2121,7 @@ class TestIsoAcoustic(object):
         u1, rec1, summary1, op1 = self.run_acoustic_forward(opt='advanced')
 
         assert len(op0._func_table) == 0
-        trees = [i for i in retrieve_iteration_tree(op0)]
+        trees = [i for i in retrieve_iteration_tree(op0) if len(i) > 1]
         assert len(trees) == 3  # due to loop blocking
 
         assert summary0[('section0', None)].ops == 50
