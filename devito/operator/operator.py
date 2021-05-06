@@ -918,6 +918,14 @@ def parse_kwargs(**kwargs):
     options.setdefault('mpi', configuration['mpi'])
     for k, v in configuration['opt-options'].items():
         options.setdefault(k, v)
+    # Handle deprecations
+    deprecated_options = ('cire-mincost-inv', 'cire-mincost-sops')
+    for i in deprecated_options:
+        try:
+            options.pop(i)
+            warning("Ignoring deprecated optimization option `%s`" % i)
+        except KeyError:
+            pass
     kwargs['options'] = options
 
     # `opt`, mode
