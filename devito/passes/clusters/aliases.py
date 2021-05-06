@@ -126,7 +126,8 @@ class CireTransformer(object):
         # [Schedule]_m -> Schedule (s.t. best memory/flops trade-off)
         if not variants:
             return []
-        schedule, exprs = pick_best(variants, self.opt_schedule_strategy, self._betterv)
+        schedule, exprs = pick_best(variants, self.opt_schedule_strategy,
+                                    self._eval_variants_delta)
 
         # Schedule -> Schedule (optimization)
         if self.opt_rotate:
@@ -206,7 +207,7 @@ class CireTransformer(object):
         """
         raise NotImplementedError
 
-    def _betterv(self, delta_flops, delta_ws):
+    def _eval_variants_delta(self, delta_flops, delta_ws):
         """
         Given the deltas in flop reduction and working set size increase of two
         Variants, return True if the second variant is estimated to deliever
@@ -239,8 +240,8 @@ class CireInvariants(CireTransformer, Queue):
         # Rule out extractions that would break data dependencies
         exclude = set().union(*[c.scope.writes for c in clusters])
 
-        # Rule out extractions that are *not* independent of the Dimension
-        # currently investigated
+        # Rule out extractions that depend on the Dimension currently investigated,
+        # as they clearly wouldn't be invariants
         exclude.add(d)
 
         key = lambda c: self._lookup_key(c, d)
@@ -288,7 +289,7 @@ class CireInvariants(CireTransformer, Queue):
 
         return AliasKey(ispace, dintervals, c.dtype, None, properties)
 
-    def _betterv(self, delta_flops, delta_ws):
+    def _eval_variants_delta(self, delta_flops, delta_ws):
         # Always prefer the Variant with fewer temporaries
         return ((delta_ws == 0 and delta_flops < 0) or
                 (delta_ws > 0))
@@ -366,7 +367,7 @@ class CireSops(CireTransformer):
     def _lookup_key(self, c):
         return AliasKey(c.ispace, c.dspace.intervals, c.dtype, c.guards, c.properties)
 
-    def _betterv(self, delta_flops, delta_ws):
+    def _eval_variants_delta(self, delta_flops, delta_ws):
         # If there's a greater flop reduction using fewer temporaries, no doubts
         # what's gonna be the best variant. But if the better flop reduction
         # comes at the price of using more temporaries, then we have to apply
@@ -885,7 +886,7 @@ def lower_schedule(schedule, meta, sregistry, ftemps):
     return clusters, subs
 
 
-def pick_best(variants, schedule_strategy, betterv):
+def pick_best(variants, schedule_strategy, eval_variants_delta):
     """
     Return the variant with the best trade-off between operation count
     reduction and working set increase. Heuristics may be applied.
@@ -919,7 +920,7 @@ def pick_best(variants, schedule_strategy, betterv):
 
         delta_flops = best_flops_score - i_flops_score
         delta_ws = best_ws_score - i_ws_score
-        if betterv(delta_flops, delta_ws):
+        if eval_variants_delta(delta_flops, delta_ws):
             best, best_flops_score, best_ws_score = i, i_flops_score, i_ws_score
 
     return best
