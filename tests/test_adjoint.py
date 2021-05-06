@@ -164,7 +164,7 @@ class TestAdjoint(object):
         # Create solver from preset
         solver = setup_func(shape=shape, spacing=spacing, vp_bottom=2,
                             kernel=kernel, nbl=nbl, tn=tn, space_order=space_order,
-                            **(presets[mkey]), dtype=np.float64)
+                            time_order=time_order, **(presets[mkey]), dtype=np.float64)
 
         # Create initial model (m0) with a constant velocity throughout
         model0 = demo_model(**(presets[mkey]), vp_top=1.5, vp_bottom=1.5,

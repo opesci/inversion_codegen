@@ -293,11 +293,10 @@ class ViscoacousticWaveSolver(object):
                                         time_order=self.time_order,
                                         space_order=self.space_order)
                 kwargs.update({k.name: k for k in va})
+                kwargs['time_m'] = 0
 
             wrap_rev = CheckpointOperator(self.op_grad(save=False), p=p, pa=pa, r=ra,
-                                          rec=rec, dt=dt, grad=grad,
-                                          time_m=0 if self.time_order == 1 else None,
-                                          **kwargs)
+                                          rec=rec, dt=dt, grad=grad, **kwargs)
 
             # Run forward
             wrp = Revolver(cp, wrap_fw, wrap_rev, n_checkpoints,
@@ -310,6 +309,7 @@ class ViscoacousticWaveSolver(object):
                                               time_order=self.time_order,
                                               space_order=self.space_order)
                 kwargs.update({k.name: k for k in va})
+                kwargs['time_m'] = 0
 
             # Memory variable:
             r = r or TimeFunction(name="r", grid=self.model.grid,
@@ -317,7 +317,6 @@ class ViscoacousticWaveSolver(object):
                                   space_order=self.space_order, staggered=NODE)
 
             summary = self.op_grad().apply(rec=rec, grad=grad, pa=pa, p=p, r=r, dt=dt,
-                                           time_m=0 if self.time_order == 1 else None,
                                            **kwargs)
 
         return grad, summary

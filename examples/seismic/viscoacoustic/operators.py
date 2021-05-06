@@ -96,8 +96,8 @@ def sls_1st_order(model, geometry, p, r=None, **kwargs):
         pde_r = r - s * (1. / t_s) * r - s * (1. / t_s) * tt * rho * div(v.forward)
         u_r = Eq(r.forward, damp * pde_r)
 
-        pde_p = p - s * bm * (tt + 1.) * div(v.forward) - s * vp * vp * r.forward + \
-            s * vp * vp * q
+        pde_p = p - s * bm * (tt + 1.) * div(v.forward) - s * vp**2 * r.forward + \
+            s * vp**2 * q
         u_p = Eq(p.forward, damp * pde_p)
 
         return [u_v, u_r, u_p]
@@ -112,7 +112,7 @@ def sls_1st_order(model, geometry, p, r=None, **kwargs):
             grad((1. / t_s) * rho * tt * r.backward)
         u_v = Eq(v.backward, damp * pde_v)
 
-        pde_p = p + s * vp * vp * div(b * v.backward)
+        pde_p = p + s * vp**2 * div(b * v.backward)
         u_p = Eq(p.backward, damp * pde_p)
 
         return [u_r, u_v, u_p]
