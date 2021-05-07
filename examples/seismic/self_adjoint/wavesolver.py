@@ -120,8 +120,13 @@ class SaIsoAcousticWaveSolver(object):
         kwargs.update(self.model.physical_params(vp=vp, damp=damp, b=b))
         kwargs.update({'dt': kwargs.pop('dt', self.dt)})
 
+        op = self.op_fwd(save)
+
+        kwargs['time_M'] = 10
+
         # Execute operator and return wavefield and receiver data
-        summary = self.op_fwd(save).apply(src=src, rec=rec, u=u, **kwargs)
+        summary = op.apply(src=src, rec=rec, u=u, **kwargs)
+
         return rec, u, summary
 
     def adjoint(self, rec, src=None, b=None, v=None, damp=None, vp=None,

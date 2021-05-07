@@ -108,6 +108,8 @@ def IsoFwdOperator(model, geometry, space_order=8, save=False, **kwargs):
     # Substitute spacing terms to reduce flops
     spacing_map = model.spacing_map
 
+    kwargs['opt'] = ('advanced', {'cire-mingain': 1000})
+
     return Operator(eqn + src_term + rec_term, subs=spacing_map,
                     name='IsoFwdOperator', **kwargs)
 
