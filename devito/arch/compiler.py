@@ -493,6 +493,8 @@ class CudaCompiler(Compiler):
         self.cflags.remove('-fPIC')
         self.cflags += ['-std=c++11', '-Xcompiler', '-fPIC']
 
+        self.src_ext = 'cu'
+
     def __lookup_cmds__(self):
         self.CC = 'nvcc'
         self.CXX = 'nvcc'
