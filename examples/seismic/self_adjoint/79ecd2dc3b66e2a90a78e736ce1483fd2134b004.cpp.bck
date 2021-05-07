@@ -1,0 +1,253 @@
+#define _POSIX_C_SOURCE 200809L
+#define START_TIMER(S) struct timeval start_ ## S , end_ ## S ; gettimeofday(&start_ ## S , NULL);
+#define STOP_TIMER(S,T) gettimeofday(&end_ ## S, NULL); T->S += (double)(end_ ## S .tv_sec-start_ ## S.tv_sec)+(double)(end_ ## S .tv_usec-start_ ## S .tv_usec)/1000000;
+
+#include "stdlib.h"
+#include "math.h"
+#include "sys/time.h"
+#include "openacc.h"
+
+struct dataobj
+{
+  void *restrict data;
+  int * size;
+  int * npsize;
+  int * dsize;
+  int * hsize;
+  int * hofs;
+  int * oofs;
+} ;
+
+struct profiler
+{
+  double section0;
+  double section1;
+  double section2;
+} ;
+
+extern "C" int IsoFwdOperator(struct dataobj *restrict b_vec, struct dataobj *restrict damp_vec, const float dt, const float o_x, const float o_y, const float o_z, struct dataobj *restrict rec_vec, struct dataobj *restrict rec_coords_vec, struct dataobj *restrict src_vec, struct dataobj *restrict src_coords_vec, struct dataobj *restrict u_vec, struct dataobj *restrict vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int p_src_M, const int p_src_m, const int time_M, const int time_m, const int devicerm, const int deviceid, struct profiler * timers);
+
+
+int IsoFwdOperator(struct dataobj *restrict b_vec, struct dataobj *restrict damp_vec, const float dt, const float o_x, const float o_y, const float o_z, struct dataobj *restrict rec_vec, struct dataobj *restrict rec_coords_vec, struct dataobj *restrict src_vec, struct dataobj *restrict src_coords_vec, struct dataobj *restrict u_vec, struct dataobj *restrict vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int p_src_M, const int p_src_m, const int time_M, const int time_m, const int devicerm, const int deviceid, struct profiler * timers)
+{
+  /* Begin of OpenACC setup */
+  acc_init(acc_device_nvidia);
+  if (deviceid != -1)
+  {
+    acc_set_device_num(deviceid,acc_device_nvidia);
+  }
+  /* End of OpenACC setup */
+
+  float (*restrict b)[b_vec->size[1]][b_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[b_vec->size[1]][b_vec->size[2]]) b_vec->data;
+  float (*restrict damp)[damp_vec->size[1]][damp_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[damp_vec->size[1]][damp_vec->size[2]]) damp_vec->data;
+  float (*restrict rec)[rec_vec->size[1]] __attribute__ ((aligned (64))) = (float (*)[rec_vec->size[1]]) rec_vec->data;
+  float (*restrict rec_coords)[rec_coords_vec->size[1]] __attribute__ ((aligned (64))) = (float (*)[rec_coords_vec->size[1]]) rec_coords_vec->data;
+  float (*restrict src)[src_vec->size[1]] __attribute__ ((aligned (64))) = (float (*)[src_vec->size[1]]) src_vec->data;
+  float (*restrict src_coords)[src_coords_vec->size[1]] __attribute__ ((aligned (64))) = (float (*)[src_coords_vec->size[1]]) src_coords_vec->data;
+  float (*restrict u)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]] __attribute__ ((aligned (64))) = (float (*)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]]) u_vec->data;
+  float (*restrict vp)[vp_vec->size[1]][vp_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[vp_vec->size[1]][vp_vec->size[2]]) vp_vec->data;
+
+  #pragma acc enter data copyin(rec[0:rec_vec->size[0]][0:rec_vec->size[1]])
+  #pragma acc enter data copyin(u[0:u_vec->size[0]][0:u_vec->size[1]][0:u_vec->size[2]][0:u_vec->size[3]])
+  #pragma acc enter data copyin(b[0:b_vec->size[0]][0:b_vec->size[1]][0:b_vec->size[2]])
+  #pragma acc enter data copyin(damp[0:damp_vec->size[0]][0:damp_vec->size[1]][0:damp_vec->size[2]])
+  #pragma acc enter data copyin(rec_coords[0:rec_coords_vec->size[0]][0:rec_coords_vec->size[1]])
+  #pragma acc enter data copyin(src[0:src_vec->size[0]][0:src_vec->size[1]])
+  #pragma acc enter data copyin(src_coords[0:src_coords_vec->size[0]][0:src_coords_vec->size[1]])
+  #pragma acc enter data copyin(vp[0:vp_vec->size[0]][0:vp_vec->size[1]][0:vp_vec->size[2]])
+
+  for (int time = time_m, t0 = (time)%(3), t1 = (time + 2)%(3), t2 = (time + 1)%(3); time <= time_M; time += 1, t0 = (time)%(3), t1 = (time + 2)%(3), t2 = (time + 1)%(3))
+  {
+    /* Begin section0 */
+    START_TIMER(section0)
+    #pragma acc parallel loop collapse(3) present(b,damp,u,vp)
+    for (int x = x_m; x <= x_M; x += 1)
+    {
+      for (int y = y_m; y <= y_M; y += 1)
+      {
+        for (int z = z_m; z <= z_M; z += 1)
+        {
+          float r35 = -u[t0][x + 13][y + 8][z + 8];
+          float r34 = -u[t0][x + 8][y + 13][z + 8];
+          float r33 = -u[t0][x + 8][y + 8][z + 13];
+          float r32 = -u[t0][x + 8][y + 8][z + 4];
+          float r31 = -u[t0][x + 8][y + 4][z + 8];
+          float r30 = -u[t0][x + 4][y + 8][z + 8];
+          float r29 = -u[t0][x + 8][y + 8][z + 5];
+          float r28 = -u[t0][x + 8][y + 8][z + 9];
+          float r27 = -u[t0][x + 8][y + 8][z + 11];
+          float r26 = -u[t0][x + 8][y + 8][z + 7];
+          float r25 = -u[t0][x + 8][y + 5][z + 8];
+          float r24 = -u[t0][x + 8][y + 9][z + 8];
+          float r23 = -u[t0][x + 8][y + 11][z + 8];
+          float r22 = -u[t0][x + 8][y + 7][z + 8];
+          float r21 = -u[t0][x + 5][y + 8][z + 8];
+          float r20 = -u[t0][x + 9][y + 8][z + 8];
+          float r19 = -u[t0][x + 11][y + 8][z + 8];
+          float r18 = -u[t0][x + 7][y + 8][z + 8];
+          float r17 = -u[t0][x + 6][y + 8][z + 8];
+          float r16 = -u[t0][x + 10][y + 8][z + 8];
+          float r15 = -u[t0][x + 12][y + 8][z + 8];
+          float r14 = -u[t0][x + 8][y + 6][z + 8];
+          float r13 = -u[t0][x + 8][y + 10][z + 8];
+          float r12 = -u[t0][x + 8][y + 12][z + 8];
+          float r11 = -u[t0][x + 8][y + 8][z + 6];
+          float r10 = -u[t0][x + 8][y + 8][z + 10];
+          float r9 = -u[t0][x + 8][y + 8][z + 12];
+          float r8 = -u[t0][x + 8][y + 8][z + 8];
+          u[t2][x + 8][y + 8][z + 8] = ((dt*dt)*(vp[x + 8][y + 8][z + 8]*vp[x + 8][y + 8][z + 8])*(5.31684056e-3F*((4.65029786e-5F*(r10 + u[t0][x + 8][y + 8][z + 3]) + 7.97526083e-2F*(r11 + u[t0][x + 8][y + 8][z + 7]) + 6.38020867e-4F*(r32 + u[t0][x + 8][y + 8][z + 9]) + 5.31684056e-3F*(r8 + u[t0][x + 8][y + 8][z + 5]))*b[x + 8][y + 8][z + 6] + (4.65029786e-5F*(r13 + u[t0][x + 8][y + 3][z + 8]) + 7.97526083e-2F*(r14 + u[t0][x + 8][y + 7][z + 8]) + 6.38020867e-4F*(r31 + u[t0][x + 8][y + 9][z + 8]) + 5.31684056e-3F*(r8 + u[t0][x + 8][y + 5][z + 8]))*b[x + 8][y + 6][z + 8] + (4.65029786e-5F*(r16 + u[t0][x + 3][y + 8][z + 8]) + 7.97526083e-2F*(r17 + u[t0][x + 7][y + 8][z + 8]) + 6.38020867e-4F*(r30 + u[t0][x + 9][y + 8][z + 8]) + 5.31684056e-3F*(r8 + u[t0][x + 5][y + 8][z + 8]))*b[x + 6][y + 8][z + 8] - (6.38020867e-4F*(r18 + u[t0][x + 12][y + 8][z + 8]) + 5.31684056e-3F*(r19 + u[t0][x + 8][y + 8][z + 8]) + 7.97526083e-2F*(r20 + u[t0][x + 10][y + 8][z + 8]) + 4.65029786e-5F*(r35 + u[t0][x + 6][y + 8][z + 8]))*b[x + 9][y + 8][z + 8] - (6.38020867e-4F*(r22 + u[t0][x + 8][y + 12][z + 8]) + 5.31684056e-3F*(r23 + u[t0][x + 8][y + 8][z + 8]) + 7.97526083e-2F*(r24 + u[t0][x + 8][y + 10][z + 8]) + 4.65029786e-5F*(r34 + u[t0][x + 8][y + 6][z + 8]))*b[x + 8][y + 9][z + 8] - (6.38020867e-4F*(r26 + u[t0][x + 8][y + 8][z + 12]) + 5.31684056e-3F*(r27 + u[t0][x + 8][y + 8][z + 8]) + 7.97526083e-2F*(r28 + u[t0][x + 8][y + 8][z + 10]) + 4.65029786e-5F*(r33 + u[t0][x + 8][y + 8][z + 6]))*b[x + 8][y + 8][z + 9]) + 7.97526083e-2F*((5.31684056e-3F*(r10 + u[t0][x + 8][y + 8][z + 7]) + 6.38020867e-4F*(r11 + u[t0][x + 8][y + 8][z + 11]) + 7.97526083e-2F*(r8 + u[t0][x + 8][y + 8][z + 9]) + 4.65029786e-5F*(r9 + u[t0][x + 8][y + 8][z + 5]))*b[x + 8][y + 8][z + 8] + (4.65029786e-5F*(r12 + u[t0][x + 8][y + 5][z + 8]) + 5.31684056e-3F*(r13 + u[t0][x + 8][y + 7][z + 8]) + 6.38020867e-4F*(r14 + u[t0][x + 8][y + 11][z + 8]) + 7.97526083e-2F*(r8 + u[t0][x + 8][y + 9][z + 8]))*b[x + 8][y + 8][z + 8] + (4.65029786e-5F*(r15 + u[t0][x + 5][y + 8][z + 8]) + 5.31684056e-3F*(r16 + u[t0][x + 7][y + 8][z + 8]) + 6.38020867e-4F*(r17 + u[t0][x + 11][y + 8][z + 8]) + 7.97526083e-2F*(r8 + u[t0][x + 9][y + 8][z + 8]))*b[x + 8][y + 8][z + 8] - (7.97526083e-2F*(r18 + u[t0][x + 8][y + 8][z + 8]) + 4.65029786e-5F*(r19 + u[t0][x + 4][y + 8][z + 8]) + 5.31684056e-3F*(r20 + u[t0][x + 6][y + 8][z + 8]) + 6.38020867e-4F*(r21 + u[t0][x + 10][y + 8][z + 8]))*b[x + 7][y + 8][z + 8] - (7.97526083e-2F*(r22 + u[t0][x + 8][y + 8][z + 8]) + 4.65029786e-5F*(r23 + u[t0][x + 8][y + 4][z + 8]) + 5.31684056e-3F*(r24 + u[t0][x + 8][y + 6][z + 8]) + 6.38020867e-4F*(r25 + u[t0][x + 8][y + 10][z + 8]))*b[x + 8][y + 7][z + 8] - (7.97526083e-2F*(r26 + u[t0][x + 8][y + 8][z + 8]) + 4.65029786e-5F*(r27 + u[t0][x + 8][y + 8][z + 4]) + 5.31684056e-3F*(r28 + u[t0][x + 8][y + 8][z + 6]) + 6.38020867e-4F*(r29 + u[t0][x + 8][y + 8][z + 10]))*b[x + 8][y + 8][z + 7]) + 6.38020867e-4F*((7.97526083e-2F*(r10 + u[t0][x + 8][y + 8][z + 11]) + 6.38020867e-4F*(r8 + u[t0][x + 8][y + 8][z + 13]) + 5.31684056e-3F*(r9 + u[t0][x + 8][y + 8][z + 9]) + 4.65029786e-5F*(u[t0][x + 8][y + 8][z + 7] - u[t0][x + 8][y + 8][z + 14]))*b[x + 8][y + 8][z + 10] + (5.31684056e-3F*(r12 + u[t0][x + 8][y + 9][z + 8]) + 7.97526083e-2F*(r13 + u[t0][x + 8][y + 11][z + 8]) + 6.38020867e-4F*(r8 + u[t0][x + 8][y + 13][z + 8]) + 4.65029786e-5F*(u[t0][x + 8][y + 7][z + 8] - u[t0][x + 8][y + 14][z + 8]))*b[x + 8][y + 10][z + 8] + (5.31684056e-3F*(r15 + u[t0][x + 9][y + 8][z + 8]) + 7.97526083e-2F*(r16 + u[t0][x + 11][y + 8][z + 8]) + 6.38020867e-4F*(r8 + u[t0][x + 13][y + 8][z + 8]) + 4.65029786e-5F*(u[t0][x + 7][y + 8][z + 8] - u[t0][x + 14][y + 8][z + 8]))*b[x + 10][y + 8][z + 8] - (5.31684056e-3F*(r18 + u[t0][x + 4][y + 8][z + 8]) + 4.65029786e-5F*(r20 + u[t0][x + 2][y + 8][z + 8]) + 7.97526083e-2F*(r21 + u[t0][x + 6][y + 8][z + 8]) + 6.38020867e-4F*(-u[t0][x + 3][y + 8][z + 8] + u[t0][x + 8][y + 8][z + 8]))*b[x + 5][y + 8][z + 8] - (5.31684056e-3F*(r22 + u[t0][x + 8][y + 4][z + 8]) + 4.65029786e-5F*(r24 + u[t0][x + 8][y + 2][z + 8]) + 7.97526083e-2F*(r25 + u[t0][x + 8][y + 6][z + 8]) + 6.38020867e-4F*(-u[t0][x + 8][y + 3][z + 8] + u[t0][x + 8][y + 8][z + 8]))*b[x + 8][y + 5][z + 8] - (5.31684056e-3F*(r26 + u[t0][x + 8][y + 8][z + 4]) + 4.65029786e-5F*(r28 + u[t0][x + 8][y + 8][z + 2]) + 7.97526083e-2F*(r29 + u[t0][x + 8][y + 8][z + 6]) + 6.38020867e-4F*(-u[t0][x + 8][y + 8][z + 3] + u[t0][x + 8][y + 8][z + 8]))*b[x + 8][y + 8][z + 5]) + 4.65029786e-5F*((5.31684056e-3F*(r11 + u[t0][x + 8][y + 8][z + 3]) + 7.97526083e-2F*(r32 + u[t0][x + 8][y + 8][z + 5]) + 4.65029786e-5F*(r8 + u[t0][x + 8][y + 8][z + 1]) + 6.38020867e-4F*(-u[t0][x + 8][y + 8][z + 2] + u[t0][x + 8][y + 8][z + 7]))*b[x + 8][y + 8][z + 4] + (5.31684056e-3F*(r14 + u[t0][x + 8][y + 3][z + 8]) + 7.97526083e-2F*(r31 + u[t0][x + 8][y + 5][z + 8]) + 4.65029786e-5F*(r8 + u[t0][x + 8][y + 1][z + 8]) + 6.38020867e-4F*(-u[t0][x + 8][y + 2][z + 8] + u[t0][x + 8][y + 7][z + 8]))*b[x + 8][y + 4][z + 8] + (5.31684056e-3F*(r17 + u[t0][x + 3][y + 8][z + 8]) + 7.97526083e-2F*(r30 + u[t0][x + 5][y + 8][z + 8]) + 4.65029786e-5F*(r8 + u[t0][x + 1][y + 8][z + 8]) + 6.38020867e-4F*(-u[t0][x + 2][y + 8][z + 8] + u[t0][x + 7][y + 8][z + 8]))*b[x + 4][y + 8][z + 8] - (7.97526083e-2F*(r19 + u[t0][x + 12][y + 8][z + 8]) + 6.38020867e-4F*(r20 + u[t0][x + 14][y + 8][z + 8]) + 5.31684056e-3F*(r35 + u[t0][x + 10][y + 8][z + 8]) + 4.65029786e-5F*(u[t0][x + 8][y + 8][z + 8] - u[t0][x + 15][y + 8][z + 8]))*b[x + 11][y + 8][z + 8] - (7.97526083e-2F*(r23 + u[t0][x + 8][y + 12][z + 8]) + 6.38020867e-4F*(r24 + u[t0][x + 8][y + 14][z + 8]) + 5.31684056e-3F*(r34 + u[t0][x + 8][y + 10][z + 8]) + 4.65029786e-5F*(u[t0][x + 8][y + 8][z + 8] - u[t0][x + 8][y + 15][z + 8]))*b[x + 8][y + 11][z + 8] - (7.97526083e-2F*(r27 + u[t0][x + 8][y + 8][z + 12]) + 6.38020867e-4F*(r28 + u[t0][x + 8][y + 8][z + 14]) + 5.31684056e-3F*(r33 + u[t0][x + 8][y + 8][z + 10]) + 4.65029786e-5F*(u[t0][x + 8][y + 8][z + 8] - u[t0][x + 8][y + 8][z + 15]))*b[x + 8][y + 8][z + 11])))/b[x + 8][y + 8][z + 8] + (dt*(-damp[x + 1][y + 1][z + 1]) + 2)*u[t0][x + 8][y + 8][z + 8] + (dt*damp[x + 1][y + 1][z + 1] - 1)*u[t1][x + 8][y + 8][z + 8];
+        }
+      }
+    }
+    STOP_TIMER(section0,timers)
+    /* End section0 */
+    /* Begin section1 */
+    START_TIMER(section1)
+    /*
+    if (src_vec->size[0]*src_vec->size[1] > 0 && p_src_M - p_src_m + 1 > 0)
+    {
+      #pragma acc parallel loop collapse(1) present(b,src,src_coords,u,vp)
+      for (int p_src = p_src_m; p_src <= p_src_M; p_src += 1)
+      {
+        float posx = -o_x + src_coords[p_src][0];
+        float posy = -o_y + src_coords[p_src][1];
+        float posz = -o_z + src_coords[p_src][2];
+        int ii_src_0 = (int)(floor(6.66667e-2*posx));
+        int ii_src_1 = (int)(floor(6.66667e-2*posy));
+        int ii_src_2 = (int)(floor(6.66667e-2*posz));
+        int ii_src_3 = (int)(floor(6.66667e-2*posz)) + 1;
+        int ii_src_4 = (int)(floor(6.66667e-2*posy)) + 1;
+        int ii_src_5 = (int)(floor(6.66667e-2*posx)) + 1;
+        float px = (float)(posx - 1.5e+1F*(int)(floor(6.66667e-2F*posx)));
+        float py = (float)(posy - 1.5e+1F*(int)(floor(6.66667e-2F*posy)));
+        float pz = (float)(posz - 1.5e+1F*(int)(floor(6.66667e-2F*posz)));
+        if (ii_src_0 >= x_m - 1 && ii_src_1 >= y_m - 1 && ii_src_2 >= z_m - 1 && ii_src_0 <= x_M + 1 && ii_src_1 <= y_M + 1 && ii_src_2 <= z_M + 1)
+        {
+          float r0 = (dt*dt)*(vp[ii_src_0 + 8][ii_src_1 + 8][ii_src_2 + 8]*vp[ii_src_0 + 8][ii_src_1 + 8][ii_src_2 + 8])*(-2.96296e-4F*px*py*pz + 4.44445e-3F*px*py + 4.44445e-3F*px*pz - 6.66667e-2F*px + 4.44445e-3F*py*pz - 6.66667e-2F*py - 6.66667e-2F*pz + 1)*src[time][p_src]/b[ii_src_0 + 8][ii_src_1 + 8][ii_src_2 + 8];
+          #pragma acc atomic update
+          u[t2][ii_src_0 + 8][ii_src_1 + 8][ii_src_2 + 8] += r0;
+        }
+        if (ii_src_0 >= x_m - 1 && ii_src_1 >= y_m - 1 && ii_src_3 >= z_m - 1 && ii_src_0 <= x_M + 1 && ii_src_1 <= y_M + 1 && ii_src_3 <= z_M + 1)
+        {
+          float r1 = (dt*dt)*(vp[ii_src_0 + 8][ii_src_1 + 8][ii_src_3 + 8]*vp[ii_src_0 + 8][ii_src_1 + 8][ii_src_3 + 8])*(2.96296e-4F*px*py*pz - 4.44445e-3F*px*pz - 4.44445e-3F*py*pz + 6.66667e-2F*pz)*src[time][p_src]/b[ii_src_0 + 8][ii_src_1 + 8][ii_src_3 + 8];
+          #pragma acc atomic update
+          u[t2][ii_src_0 + 8][ii_src_1 + 8][ii_src_3 + 8] += r1;
+        }
+        if (ii_src_0 >= x_m - 1 && ii_src_2 >= z_m - 1 && ii_src_4 >= y_m - 1 && ii_src_0 <= x_M + 1 && ii_src_2 <= z_M + 1 && ii_src_4 <= y_M + 1)
+        {
+          float r2 = (dt*dt)*(vp[ii_src_0 + 8][ii_src_4 + 8][ii_src_2 + 8]*vp[ii_src_0 + 8][ii_src_4 + 8][ii_src_2 + 8])*(2.96296e-4F*px*py*pz - 4.44445e-3F*px*py - 4.44445e-3F*py*pz + 6.66667e-2F*py)*src[time][p_src]/b[ii_src_0 + 8][ii_src_4 + 8][ii_src_2 + 8];
+          #pragma acc atomic update
+          u[t2][ii_src_0 + 8][ii_src_4 + 8][ii_src_2 + 8] += r2;
+        }
+        if (ii_src_0 >= x_m - 1 && ii_src_3 >= z_m - 1 && ii_src_4 >= y_m - 1 && ii_src_0 <= x_M + 1 && ii_src_3 <= z_M + 1 && ii_src_4 <= y_M + 1)
+        {
+          float r3 = (dt*dt)*(vp[ii_src_0 + 8][ii_src_4 + 8][ii_src_3 + 8]*vp[ii_src_0 + 8][ii_src_4 + 8][ii_src_3 + 8])*(-2.96296e-4F*px*py*pz + 4.44445e-3F*py*pz)*src[time][p_src]/b[ii_src_0 + 8][ii_src_4 + 8][ii_src_3 + 8];
+          #pragma acc atomic update
+          u[t2][ii_src_0 + 8][ii_src_4 + 8][ii_src_3 + 8] += r3;
+        }
+        if (ii_src_1 >= y_m - 1 && ii_src_2 >= z_m - 1 && ii_src_5 >= x_m - 1 && ii_src_1 <= y_M + 1 && ii_src_2 <= z_M + 1 && ii_src_5 <= x_M + 1)
+        {
+          float r4 = (dt*dt)*(vp[ii_src_5 + 8][ii_src_1 + 8][ii_src_2 + 8]*vp[ii_src_5 + 8][ii_src_1 + 8][ii_src_2 + 8])*(2.96296e-4F*px*py*pz - 4.44445e-3F*px*py - 4.44445e-3F*px*pz + 6.66667e-2F*px)*src[time][p_src]/b[ii_src_5 + 8][ii_src_1 + 8][ii_src_2 + 8];
+          #pragma acc atomic update
+          u[t2][ii_src_5 + 8][ii_src_1 + 8][ii_src_2 + 8] += r4;
+        }
+        if (ii_src_1 >= y_m - 1 && ii_src_3 >= z_m - 1 && ii_src_5 >= x_m - 1 && ii_src_1 <= y_M + 1 && ii_src_3 <= z_M + 1 && ii_src_5 <= x_M + 1)
+        {
+          float r5 = (dt*dt)*(vp[ii_src_5 + 8][ii_src_1 + 8][ii_src_3 + 8]*vp[ii_src_5 + 8][ii_src_1 + 8][ii_src_3 + 8])*(-2.96296e-4F*px*py*pz + 4.44445e-3F*px*pz)*src[time][p_src]/b[ii_src_5 + 8][ii_src_1 + 8][ii_src_3 + 8];
+          #pragma acc atomic update
+          u[t2][ii_src_5 + 8][ii_src_1 + 8][ii_src_3 + 8] += r5;
+        }
+        if (ii_src_2 >= z_m - 1 && ii_src_4 >= y_m - 1 && ii_src_5 >= x_m - 1 && ii_src_2 <= z_M + 1 && ii_src_4 <= y_M + 1 && ii_src_5 <= x_M + 1)
+        {
+          float r6 = (dt*dt)*(vp[ii_src_5 + 8][ii_src_4 + 8][ii_src_2 + 8]*vp[ii_src_5 + 8][ii_src_4 + 8][ii_src_2 + 8])*(-2.96296e-4F*px*py*pz + 4.44445e-3F*px*py)*src[time][p_src]/b[ii_src_5 + 8][ii_src_4 + 8][ii_src_2 + 8];
+          #pragma acc atomic update
+          u[t2][ii_src_5 + 8][ii_src_4 + 8][ii_src_2 + 8] += r6;
+        }
+        if (ii_src_3 >= z_m - 1 && ii_src_4 >= y_m - 1 && ii_src_5 >= x_m - 1 && ii_src_3 <= z_M + 1 && ii_src_4 <= y_M + 1 && ii_src_5 <= x_M + 1)
+        {
+          float r7 = 2.96296e-4F*px*py*pz*(dt*dt)*(vp[ii_src_5 + 8][ii_src_4 + 8][ii_src_3 + 8]*vp[ii_src_5 + 8][ii_src_4 + 8][ii_src_3 + 8])*src[time][p_src]/b[ii_src_5 + 8][ii_src_4 + 8][ii_src_3 + 8];
+          #pragma acc atomic update
+          u[t2][ii_src_5 + 8][ii_src_4 + 8][ii_src_3 + 8] += r7;
+        }
+      }
+    }
+    */
+    STOP_TIMER(section1,timers)
+    /* End section1 */
+    /* Begin section2 */
+    START_TIMER(section2)
+    /*
+    if (rec_vec->size[0]*rec_vec->size[1] > 0 && p_rec_M - p_rec_m + 1 > 0)
+    {
+      #pragma acc parallel loop collapse(1) present(rec,rec_coords,u)
+      for (int p_rec = p_rec_m; p_rec <= p_rec_M; p_rec += 1)
+      {
+        float posx = -o_x + rec_coords[p_rec][0];
+        float posy = -o_y + rec_coords[p_rec][1];
+        float posz = -o_z + rec_coords[p_rec][2];
+        int ii_rec_0 = (int)(floor(6.66667e-2*posx));
+        int ii_rec_1 = (int)(floor(6.66667e-2*posy));
+        int ii_rec_2 = (int)(floor(6.66667e-2*posz));
+        int ii_rec_3 = (int)(floor(6.66667e-2*posz)) + 1;
+        int ii_rec_4 = (int)(floor(6.66667e-2*posy)) + 1;
+        int ii_rec_5 = (int)(floor(6.66667e-2*posx)) + 1;
+        float px = (float)(posx - 1.5e+1F*(int)(floor(6.66667e-2F*posx)));
+        float py = (float)(posy - 1.5e+1F*(int)(floor(6.66667e-2F*posy)));
+        float pz = (float)(posz - 1.5e+1F*(int)(floor(6.66667e-2F*posz)));
+        float sum = 0.0F;
+        if (ii_rec_0 >= x_m - 1 && ii_rec_1 >= y_m - 1 && ii_rec_2 >= z_m - 1 && ii_rec_0 <= x_M + 1 && ii_rec_1 <= y_M + 1 && ii_rec_2 <= z_M + 1)
+        {
+          sum += (-2.96296e-4F*px*py*pz + 4.44445e-3F*px*py + 4.44445e-3F*px*pz - 6.66667e-2F*px + 4.44445e-3F*py*pz - 6.66667e-2F*py - 6.66667e-2F*pz + 1)*u[t0][ii_rec_0 + 8][ii_rec_1 + 8][ii_rec_2 + 8];
+        }
+        if (ii_rec_0 >= x_m - 1 && ii_rec_1 >= y_m - 1 && ii_rec_3 >= z_m - 1 && ii_rec_0 <= x_M + 1 && ii_rec_1 <= y_M + 1 && ii_rec_3 <= z_M + 1)
+        {
+          sum += (2.96296e-4F*px*py*pz - 4.44445e-3F*px*pz - 4.44445e-3F*py*pz + 6.66667e-2F*pz)*u[t0][ii_rec_0 + 8][ii_rec_1 + 8][ii_rec_3 + 8];
+        }
+        if (ii_rec_0 >= x_m - 1 && ii_rec_2 >= z_m - 1 && ii_rec_4 >= y_m - 1 && ii_rec_0 <= x_M + 1 && ii_rec_2 <= z_M + 1 && ii_rec_4 <= y_M + 1)
+        {
+          sum += (2.96296e-4F*px*py*pz - 4.44445e-3F*px*py - 4.44445e-3F*py*pz + 6.66667e-2F*py)*u[t0][ii_rec_0 + 8][ii_rec_4 + 8][ii_rec_2 + 8];
+        }
+        if (ii_rec_0 >= x_m - 1 && ii_rec_3 >= z_m - 1 && ii_rec_4 >= y_m - 1 && ii_rec_0 <= x_M + 1 && ii_rec_3 <= z_M + 1 && ii_rec_4 <= y_M + 1)
+        {
+          sum += (-2.96296e-4F*px*py*pz + 4.44445e-3F*py*pz)*u[t0][ii_rec_0 + 8][ii_rec_4 + 8][ii_rec_3 + 8];
+        }
+        if (ii_rec_1 >= y_m - 1 && ii_rec_2 >= z_m - 1 && ii_rec_5 >= x_m - 1 && ii_rec_1 <= y_M + 1 && ii_rec_2 <= z_M + 1 && ii_rec_5 <= x_M + 1)
+        {
+          sum += (2.96296e-4F*px*py*pz - 4.44445e-3F*px*py - 4.44445e-3F*px*pz + 6.66667e-2F*px)*u[t0][ii_rec_5 + 8][ii_rec_1 + 8][ii_rec_2 + 8];
+        }
+        if (ii_rec_1 >= y_m - 1 && ii_rec_3 >= z_m - 1 && ii_rec_5 >= x_m - 1 && ii_rec_1 <= y_M + 1 && ii_rec_3 <= z_M + 1 && ii_rec_5 <= x_M + 1)
+        {
+          sum += (-2.96296e-4F*px*py*pz + 4.44445e-3F*px*pz)*u[t0][ii_rec_5 + 8][ii_rec_1 + 8][ii_rec_3 + 8];
+        }
+        if (ii_rec_2 >= z_m - 1 && ii_rec_4 >= y_m - 1 && ii_rec_5 >= x_m - 1 && ii_rec_2 <= z_M + 1 && ii_rec_4 <= y_M + 1 && ii_rec_5 <= x_M + 1)
+        {
+          sum += (-2.96296e-4F*px*py*pz + 4.44445e-3F*px*py)*u[t0][ii_rec_5 + 8][ii_rec_4 + 8][ii_rec_2 + 8];
+        }
+        if (ii_rec_3 >= z_m - 1 && ii_rec_4 >= y_m - 1 && ii_rec_5 >= x_m - 1 && ii_rec_3 <= z_M + 1 && ii_rec_4 <= y_M + 1 && ii_rec_5 <= x_M + 1)
+        {
+          sum += 2.96296e-4F*px*py*pz*u[t0][ii_rec_5 + 8][ii_rec_4 + 8][ii_rec_3 + 8];
+        }
+        rec[time][p_rec] = sum;
+      }
+    }
+    */
+    STOP_TIMER(section2,timers)
+    /* End section2 */
+  }
+
+  #pragma acc exit data copyout(rec[0:rec_vec->size[0]][0:rec_vec->size[1]])
+  #pragma acc exit data delete(rec[0:rec_vec->size[0]][0:rec_vec->size[1]]) if(devicerm)
+  #pragma acc exit data copyout(u[0:u_vec->size[0]][0:u_vec->size[1]][0:u_vec->size[2]][0:u_vec->size[3]])
+  #pragma acc exit data delete(u[0:u_vec->size[0]][0:u_vec->size[1]][0:u_vec->size[2]][0:u_vec->size[3]]) if(devicerm)
+  #pragma acc exit data delete(b[0:b_vec->size[0]][0:b_vec->size[1]][0:b_vec->size[2]]) if(devicerm)
+  #pragma acc exit data delete(damp[0:damp_vec->size[0]][0:damp_vec->size[1]][0:damp_vec->size[2]]) if(devicerm)
+  #pragma acc exit data delete(rec_coords[0:rec_coords_vec->size[0]][0:rec_coords_vec->size[1]]) if(devicerm)
+  #pragma acc exit data delete(src[0:src_vec->size[0]][0:src_vec->size[1]]) if(devicerm)
+  #pragma acc exit data delete(src_coords[0:src_coords_vec->size[0]][0:src_coords_vec->size[1]]) if(devicerm)
+  #pragma acc exit data delete(vp[0:vp_vec->size[0]][0:vp_vec->size[1]][0:vp_vec->size[2]]) if(devicerm)
+
+  return 0;
+}
+/* Backdoor edit at Fri May  7 16:16:20 2021*/ 
+/* Backdoor edit at Fri May  7 16:41:24 2021*/ 
+/* Backdoor edit at Fri May  7 16:42:17 2021*/ 
