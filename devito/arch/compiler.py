@@ -483,6 +483,23 @@ class NvidiaCompiler(PGICompiler):
         self.MPICXX = 'mpicxx'
 
 
+class CudaCompiler(Compiler):
+
+    def __init__(self, *args, **kwargs):
+        super(CudaCompiler, self).__init__(*args, cpp=True, **kwargs)
+
+        self.cflags.remove('-std=c99')
+        self.cflags.remove('-Wall')
+        self.cflags.remove('-fPIC')
+        self.cflags += ['-std=c++11', '-Xcompiler', '-fPIC']
+
+    def __lookup_cmds__(self):
+        self.CC = 'nvcc'
+        self.CXX = 'nvcc'
+        self.MPICC = 'mpic++'
+        self.MPICXX = 'mpicxx'
+
+
 class IntelCompiler(Compiler):
 
     def __init__(self, *args, **kwargs):
@@ -600,6 +617,8 @@ compiler_registry = {
     'nvc': NvidiaCompiler,
     'nvcc': NvidiaCompiler,
     'nvidia': NvidiaCompiler,
+    'cuda': CudaCompiler,
+    'CUDA': CudaCompiler,
     'osx': ClangCompiler,
     'intel': IntelCompiler,
     'icpc': IntelCompiler,
