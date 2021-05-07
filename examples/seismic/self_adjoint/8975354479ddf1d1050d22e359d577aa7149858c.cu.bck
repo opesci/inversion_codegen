@@ -32,7 +32,8 @@ struct profiler
 extern "C" int IsoFwdOperator(struct dataobj * b_vec, struct dataobj * damp_vec, const float dt, const float o_x, const float o_y, const float o_z, struct dataobj * rec_vec, struct dataobj * rec_coords_vec, struct dataobj * src_vec, struct dataobj * src_coords_vec, struct dataobj * u_vec, struct dataobj * vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int p_src_M, const int p_src_m, const int time_M, const int time_m, const int devicerm, const int deviceid, struct profiler * timers);
 
 struct dataobj* make_dataobj_device(struct dataobj * in, void * d_data);
-void kernel0(struct dataobj * b_vec, struct dataobj * damp_vec, const float dt, struct dataobj * u_vec, struct dataobj * vp_vec, const int t0, const int t1, const int t2, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m);
+void free_dataobj_device(struct dataobj * dev);
+__global__ void kernel0(struct dataobj * b_dev, struct dataobj * damp_dev, const float dt, struct dataobj * u_dev, struct dataobj * vp_dev, const int t0, const int t1, const int t2, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m);
 void kernel1(struct dataobj * b_vec, const float dt, const float o_x, const float o_y, const float o_z, struct dataobj * src_vec, struct dataobj * src_coords_vec, struct dataobj * u_vec, struct dataobj * vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_src_M, const int p_src_m, const int t2, const int time);
 void kernel2(const float o_x, const float o_y, const float o_z, struct dataobj * rec_vec, struct dataobj * rec_coords_vec, struct dataobj * u_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int t0, const int time);
 
@@ -58,16 +59,26 @@ int IsoFwdOperator(struct dataobj * b_vec, struct dataobj * damp_vec, const floa
 
   // dataobjs for devices
   struct dataobj *u_dev = make_dataobj_device(u_vec, u);
-  struct dataobj *b_dev = make_dataobj_device(u_vec, u);
-  struct dataobj *damp_dev = make_dataobj_device(u_vec, u);
-  struct dataobj *vp_dev = make_dataobj_device(u_vec, u);
+  struct dataobj *b_dev = make_dataobj_device(b_vec, b);
+  struct dataobj *damp_dev = make_dataobj_device(damp_vec, damp);
+  struct dataobj *vp_dev = make_dataobj_device(vp_vec, vp);
+
+  // launch parameters
+  const int x0_blk0_size = 8;
+  const int y0_blk0_size = 8;
+  const int z0_blk0_size = 8;
+  const int x_nblks = (x_M - x_m + 1) / x0_blk0_size;
+  const int y_nblks = (y_M - y_m + 1) / y0_blk0_size;
+  const int z_nblks = (z_M - z_m + 1) / z0_blk0_size;
+  dim3 grid(x_nblks, y_nblks, z_nblks);
+  dim3 blocks(x0_blk0_size, y0_blk0_size, z0_blk0_size);
 
   for (int time = time_m, t0 = (time)%(3), t1 = (time + 2)%(3), t2 = (time + 1)%(3); time <= time_M; time += 1, t0 = (time)%(3), t1 = (time + 2)%(3), t2 = (time + 1)%(3))
   {
     /* Begin section0 */
     START_TIMER(section0)
 
-    kernel0(b_dev,damp_dev,dt,u_dev,vp_dev,t0,t1,t2,x_M,x_m,y_M,y_m,z_M,z_m);
+    kernel0<<<grid, blocks>>>(b_dev,damp_dev,dt,u_dev,vp_dev,t0,t1,t2,x_M,x_m,y_M,y_m,z_M,z_m);
     
     cudaDeviceSynchronize();
     
@@ -94,20 +105,44 @@ int IsoFwdOperator(struct dataobj * b_vec, struct dataobj * damp_vec, const floa
   cudaFree(damp);
   cudaFree(vp);
 
-  free(u_dev);
-  free(b_dev);
-  free(damp_dev);
-  free(vp_dev);
+  free_dataobj_device(u_dev);
+  free_dataobj_device(b_dev);
+  free_dataobj_device(damp_dev);
+  free_dataobj_device(vp_dev);
 
   return 0;
 }
 
-void kernel0(struct dataobj * b_vec, struct dataobj * damp_vec, const float dt, struct dataobj * u_vec, struct dataobj * vp_vec, const int t0, const int t1, const int t2, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m)
+__global__ void kernel0(struct dataobj * b_dev, struct dataobj * damp_dev, const float dt, struct dataobj * u_dev, struct dataobj * vp_dev, const int t0, const int t1, const int t2, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m)
 {
-  float (* b)[b_vec->size[1]][b_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[b_vec->size[1]][b_vec->size[2]]) b_vec->data;
-  float (* damp)[damp_vec->size[1]][damp_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[damp_vec->size[1]][damp_vec->size[2]]) damp_vec->data;
-  float (* u)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]] __attribute__ ((aligned (64))) = (float (*)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]]) u_vec->data;
-  float (* vp)[vp_vec->size[1]][vp_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[vp_vec->size[1]][vp_vec->size[2]]) vp_vec->data;
+//  float (* b)[b_dev->size[1]][b_dev->size[2]] __attribute__ ((aligned (64))) = (float (*)[b_dev->size[1]][b_dev->size[2]]) b_dev->data;
+//  float (* damp)[damp_dev->size[1]][damp_dev->size[2]] __attribute__ ((aligned (64))) = (float (*)[damp_dev->size[1]][damp_dev->size[2]]) damp_dev->data;
+//  float (* u)[u_dev->size[1]][u_dev->size[2]][u_dev->size[3]] __attribute__ ((aligned (64))) = (float (*)[u_dev->size[1]][u_dev->size[2]][u_dev->size[3]]) u_dev->data;
+//  float (* vp)[vp_dev->size[1]][vp_dev->size[2]] __attribute__ ((aligned (64))) = (float (*)[vp_dev->size[1]][vp_dev->size[2]]) vp_dev->data;
+
+  int z = blockDim.z * blockIdx.z + threadIdx.z;
+  int y = blockDim.y * blockIdx.y + threadIdx.y;
+  int x = blockDim.x * blockIdx.x + threadIdx.x;
+
+  if (x < x_m || x > x_M || y < y_m || y > y_M || z < z_m || z > z_M) {
+      return;
+  }
+
+  float *u = (float*)u_dev->data;
+
+  //const int ts = u_dev->size[0];
+  const int xs = u_dev->size[1];
+  const int ys = u_dev->size[2];
+  const int zs = u_dev->size[3];
+
+  const int ofs = t2*xs*ys*zs + (8+x)*ys*zs + (8+y)*zs + (8+z);
+  u[ofs] = 4.0F;
+  
+  // u[t2][115][115][115] = 4;
+  //const int ofs = t2*xs*ys*zs + (8+115)*ys*zs + (8+115)*zs + (8+115);
+  //if (x == 115 && y == 115 && z == 115) {
+  // u[500] = 4.0F;
+  //}
 
   /*
   for (int x = x_m; x <= x_M; x += 1)
@@ -295,7 +330,11 @@ void kernel2(const float o_x, const float o_y, const float o_z, struct dataobj *
 
 struct dataobj* make_dataobj_device(struct dataobj * in, void * d_data)
 {
+  // hacky, but it does the trick
+  // (don't know how to easily change a single entry in a device struct)
+
   struct dataobj *out = (struct dataobj*) malloc(sizeof(struct dataobj));
+
   out->data = d_data;
   out->size = in->size;
   out->npsize = in->npsize;
@@ -304,5 +343,17 @@ struct dataobj* make_dataobj_device(struct dataobj * in, void * d_data)
   out->hofs = in->hofs;
   out->oofs = in->oofs;
 
-  return out;
+  struct dataobj *out_dev = NULL;
+  cudaMalloc((void**)&out_dev, sizeof(struct dataobj));
+
+  cudaMemcpy(out_dev, out, sizeof(struct dataobj), cudaMemcpyHostToDevice);
+
+  free(out);
+
+  return out_dev;
+}
+
+void free_dataobj_device(struct dataobj * dev)
+{
+  cudaFree(dev);
 }
