@@ -109,6 +109,7 @@ def IsoFwdOperator(model, geometry, space_order=8, save=False, **kwargs):
     spacing_map = model.spacing_map
 
     kwargs['opt'] = ('advanced', {'cire-mingain': 1000})
+    kwargs['compiler'] = 'cuda'
 
     return Operator(eqn + src_term + rec_term, subs=spacing_map,
                     name='IsoFwdOperator', **kwargs)
