@@ -2,14 +2,18 @@
 #define START_TIMER(S) struct timeval start_ ## S , end_ ## S ; gettimeofday(&start_ ## S , NULL);
 #define STOP_TIMER(S,T) gettimeofday(&end_ ## S, NULL); T->S += (double)(end_ ## S .tv_sec-start_ ## S.tv_sec)+(double)(end_ ## S .tv_usec-start_ ## S .tv_usec)/1000000;
 
+#define restrict __restrict
+
 #include "stdlib.h"
 #include "math.h"
 #include "sys/time.h"
-#include "openacc.h"
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#include<cstdio>
 
 struct dataobj
 {
-  void *restrict data;
+  void * data;
   int * size;
   int * npsize;
   int * dsize;
@@ -25,27 +29,57 @@ struct profiler
   double section2;
 } ;
 
-extern "C" int IsoFwdOperator(struct dataobj *restrict b_vec, struct dataobj *restrict damp_vec, const float dt, const float o_x, const float o_y, const float o_z, struct dataobj *restrict rec_vec, struct dataobj *restrict rec_coords_vec, struct dataobj *restrict src_vec, struct dataobj *restrict src_coords_vec, struct dataobj *restrict u_vec, struct dataobj *restrict vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int p_src_M, const int p_src_m, const int time_M, const int time_m, const int devicerm, const int deviceid, struct profiler * timers);
+extern "C" int IsoFwdOperator(struct dataobj * b_vec, struct dataobj * damp_vec, const float dt, const float o_x, const float o_y, const float o_z, struct dataobj * rec_vec, struct dataobj * rec_coords_vec, struct dataobj * src_vec, struct dataobj * src_coords_vec, struct dataobj * u_vec, struct dataobj * vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int p_src_M, const int p_src_m, const int time_M, const int time_m, const int devicerm, const int deviceid, struct profiler * timers);
 
-void kernel0(struct dataobj *restrict b_vec, struct dataobj *restrict damp_vec, const float dt, struct dataobj *restrict u_vec, struct dataobj *restrict vp_vec, const int t0, const int t1, const int t2, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m);
-void kernel1(struct dataobj *restrict b_vec, const float dt, const float o_x, const float o_y, const float o_z, struct dataobj *restrict src_vec, struct dataobj *restrict src_coords_vec, struct dataobj *restrict u_vec, struct dataobj *restrict vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_src_M, const int p_src_m, const int t2, const int time);
-void kernel2(const float o_x, const float o_y, const float o_z, struct dataobj *restrict rec_vec, struct dataobj *restrict rec_coords_vec, struct dataobj *restrict u_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int t0, const int time);
+struct dataobj* make_dataobj_device(struct dataobj * in, void * d_data);
+void kernel0(struct dataobj * b_vec, struct dataobj * damp_vec, const float dt, struct dataobj * u_vec, struct dataobj * vp_vec, const int t0, const int t1, const int t2, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m);
+void kernel1(struct dataobj * b_vec, const float dt, const float o_x, const float o_y, const float o_z, struct dataobj * src_vec, struct dataobj * src_coords_vec, struct dataobj * u_vec, struct dataobj * vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_src_M, const int p_src_m, const int t2, const int time);
+void kernel2(const float o_x, const float o_y, const float o_z, struct dataobj * rec_vec, struct dataobj * rec_coords_vec, struct dataobj * u_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int t0, const int time);
 
-int IsoFwdOperator(struct dataobj *restrict b_vec, struct dataobj *restrict damp_vec, const float dt, const float o_x, const float o_y, const float o_z, struct dataobj *restrict rec_vec, struct dataobj *restrict rec_coords_vec, struct dataobj *restrict src_vec, struct dataobj *restrict src_coords_vec, struct dataobj *restrict u_vec, struct dataobj *restrict vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int p_src_M, const int p_src_m, const int time_M, const int time_m, const int devicerm, const int deviceid, struct profiler * timers)
+int IsoFwdOperator(struct dataobj * b_vec, struct dataobj * damp_vec, const float dt, const float o_x, const float o_y, const float o_z, struct dataobj * rec_vec, struct dataobj * rec_coords_vec, struct dataobj * src_vec, struct dataobj * src_coords_vec, struct dataobj * u_vec, struct dataobj * vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int p_src_M, const int p_src_m, const int time_M, const int time_m, const int devicerm, const int deviceid, struct profiler * timers)
 {
+  // Functions
+  float *u = NULL;
+  float *b = NULL;
+  float *damp = NULL;
+  float *vp = NULL;
+
+  cudaMalloc((void**)&u, sizeof(float)*u_vec->size[0]*u_vec->size[1]*u_vec->size[2]*u_vec->size[3]);
+  cudaMalloc((void**)&b, sizeof(float)*b_vec->size[0]*b_vec->size[1]*b_vec->size[2]);
+  cudaMalloc((void**)&damp, sizeof(float)*damp_vec->size[0]*damp_vec->size[1]*damp_vec->size[2]);
+  cudaMalloc((void**)&vp, sizeof(float)*vp_vec->size[0]*vp_vec->size[1]*vp_vec->size[2]);
+
+  cudaMemcpy(u, u_vec->data, sizeof(float)*u_vec->size[0]*u_vec->size[1]*u_vec->size[2]*u_vec->size[3], cudaMemcpyHostToDevice);
+  cudaMemcpy(b, b_vec->data, sizeof(float)*b_vec->size[0]*b_vec->size[1]*b_vec->size[2], cudaMemcpyHostToDevice);
+  cudaMemcpy(damp, damp_vec->data, sizeof(float)*damp_vec->size[0]*damp_vec->size[1]*damp_vec->size[2], cudaMemcpyHostToDevice);
+  cudaMemcpy(vp, vp_vec->data, sizeof(float)*vp_vec->size[0]*vp_vec->size[1]*vp_vec->size[2], cudaMemcpyHostToDevice);
+
+  // Symbols
+
+  // dataobjs for devices
+  struct dataobj *u_dev = make_dataobj_device(u_vec, u);
+  struct dataobj *b_dev = make_dataobj_device(u_vec, u);
+  struct dataobj *damp_dev = make_dataobj_device(u_vec, u);
+  struct dataobj *vp_dev = make_dataobj_device(u_vec, u);
 
   for (int time = time_m, t0 = (time)%(3), t1 = (time + 2)%(3), t2 = (time + 1)%(3); time <= time_M; time += 1, t0 = (time)%(3), t1 = (time + 2)%(3), t2 = (time + 1)%(3))
   {
     /* Begin section0 */
     START_TIMER(section0)
-    kernel0(b_vec,damp_vec,dt,u_vec,vp_vec,t0,t1,t2,x_M,x_m,y_M,y_m,z_M,z_m);
+
+    kernel0(b_dev,damp_dev,dt,u_dev,vp_dev,t0,t1,t2,x_M,x_m,y_M,y_m,z_M,z_m);
+    
+    cudaDeviceSynchronize();
+    
     STOP_TIMER(section0,timers)
     /* End section0 */
+
     /* Begin section1 */
     START_TIMER(section1)
     //kernel1(b_vec,dt,o_x,o_y,o_z,src_vec,src_coords_vec,u_vec,vp_vec,x_M,x_m,y_M,y_m,z_M,z_m,p_src_M,p_src_m,t2,time);
     STOP_TIMER(section1,timers)
     /* End section1 */
+
     /* Begin section2 */
     START_TIMER(section2)
     //kernel2(o_x,o_y,o_z,rec_vec,rec_coords_vec,u_vec,x_M,x_m,y_M,y_m,z_M,z_m,p_rec_M,p_rec_m,t0,time);
@@ -53,17 +87,29 @@ int IsoFwdOperator(struct dataobj *restrict b_vec, struct dataobj *restrict damp
     /* End section2 */
   }
 
+  cudaMemcpy(u_vec->data, u, sizeof(float)*u_vec->size[0]*u_vec->size[1]*u_vec->size[2]*u_vec->size[3], cudaMemcpyDeviceToHost);
+
+  cudaFree(u);
+  cudaFree(b);
+  cudaFree(damp);
+  cudaFree(vp);
+
+  free(u_dev);
+  free(b_dev);
+  free(damp_dev);
+  free(vp_dev);
+
   return 0;
 }
 
-void kernel0(struct dataobj *restrict b_vec, struct dataobj *restrict damp_vec, const float dt, struct dataobj *restrict u_vec, struct dataobj *restrict vp_vec, const int t0, const int t1, const int t2, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m)
+void kernel0(struct dataobj * b_vec, struct dataobj * damp_vec, const float dt, struct dataobj * u_vec, struct dataobj * vp_vec, const int t0, const int t1, const int t2, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m)
 {
-  float (*restrict b)[b_vec->size[1]][b_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[b_vec->size[1]][b_vec->size[2]]) b_vec->data;
-  float (*restrict damp)[damp_vec->size[1]][damp_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[damp_vec->size[1]][damp_vec->size[2]]) damp_vec->data;
-  float (*restrict u)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]] __attribute__ ((aligned (64))) = (float (*)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]]) u_vec->data;
-  float (*restrict vp)[vp_vec->size[1]][vp_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[vp_vec->size[1]][vp_vec->size[2]]) vp_vec->data;
+  float (* b)[b_vec->size[1]][b_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[b_vec->size[1]][b_vec->size[2]]) b_vec->data;
+  float (* damp)[damp_vec->size[1]][damp_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[damp_vec->size[1]][damp_vec->size[2]]) damp_vec->data;
+  float (* u)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]] __attribute__ ((aligned (64))) = (float (*)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]]) u_vec->data;
+  float (* vp)[vp_vec->size[1]][vp_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[vp_vec->size[1]][vp_vec->size[2]]) vp_vec->data;
 
-  //#pragma acc parallel loop collapse(3) present(b,damp,u,vp)
+  /*
   for (int x = x_m; x <= x_M; x += 1)
   {
     for (int y = y_m; y <= y_M; y += 1)
@@ -102,15 +148,16 @@ void kernel0(struct dataobj *restrict b_vec, struct dataobj *restrict damp_vec, 
       }
     }
   }
+  */
 }
 
-void kernel1(struct dataobj *restrict b_vec, const float dt, const float o_x, const float o_y, const float o_z, struct dataobj *restrict src_vec, struct dataobj *restrict src_coords_vec, struct dataobj *restrict u_vec, struct dataobj *restrict vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_src_M, const int p_src_m, const int t2, const int time)
+void kernel1(struct dataobj * b_vec, const float dt, const float o_x, const float o_y, const float o_z, struct dataobj * src_vec, struct dataobj * src_coords_vec, struct dataobj * u_vec, struct dataobj * vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_src_M, const int p_src_m, const int t2, const int time)
 {
-  float (*restrict b)[b_vec->size[1]][b_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[b_vec->size[1]][b_vec->size[2]]) b_vec->data;
-  float (*restrict src)[src_vec->size[1]] __attribute__ ((aligned (64))) = (float (*)[src_vec->size[1]]) src_vec->data;
-  float (*restrict src_coords)[src_coords_vec->size[1]] __attribute__ ((aligned (64))) = (float (*)[src_coords_vec->size[1]]) src_coords_vec->data;
-  float (*restrict u)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]] __attribute__ ((aligned (64))) = (float (*)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]]) u_vec->data;
-  float (*restrict vp)[vp_vec->size[1]][vp_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[vp_vec->size[1]][vp_vec->size[2]]) vp_vec->data;
+  float (* b)[b_vec->size[1]][b_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[b_vec->size[1]][b_vec->size[2]]) b_vec->data;
+  float (* src)[src_vec->size[1]] __attribute__ ((aligned (64))) = (float (*)[src_vec->size[1]]) src_vec->data;
+  float (* src_coords)[src_coords_vec->size[1]] __attribute__ ((aligned (64))) = (float (*)[src_coords_vec->size[1]]) src_coords_vec->data;
+  float (* u)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]] __attribute__ ((aligned (64))) = (float (*)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]]) u_vec->data;
+  float (* vp)[vp_vec->size[1]][vp_vec->size[2]] __attribute__ ((aligned (64))) = (float (*)[vp_vec->size[1]][vp_vec->size[2]]) vp_vec->data;
 
   if (src_vec->size[0]*src_vec->size[1] > 0 && p_src_M - p_src_m + 1 > 0)
   {
@@ -181,11 +228,11 @@ void kernel1(struct dataobj *restrict b_vec, const float dt, const float o_x, co
   }
 }
 
-void kernel2(const float o_x, const float o_y, const float o_z, struct dataobj *restrict rec_vec, struct dataobj *restrict rec_coords_vec, struct dataobj *restrict u_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int t0, const int time)
+void kernel2(const float o_x, const float o_y, const float o_z, struct dataobj * rec_vec, struct dataobj * rec_coords_vec, struct dataobj * u_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int t0, const int time)
 {
-  float (*restrict rec)[rec_vec->size[1]] __attribute__ ((aligned (64))) = (float (*)[rec_vec->size[1]]) rec_vec->data;
-  float (*restrict rec_coords)[rec_coords_vec->size[1]] __attribute__ ((aligned (64))) = (float (*)[rec_coords_vec->size[1]]) rec_coords_vec->data;
-  float (*restrict u)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]] __attribute__ ((aligned (64))) = (float (*)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]]) u_vec->data;
+  float (* rec)[rec_vec->size[1]] __attribute__ ((aligned (64))) = (float (*)[rec_vec->size[1]]) rec_vec->data;
+  float (* rec_coords)[rec_coords_vec->size[1]] __attribute__ ((aligned (64))) = (float (*)[rec_coords_vec->size[1]]) rec_coords_vec->data;
+  float (* u)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]] __attribute__ ((aligned (64))) = (float (*)[u_vec->size[1]][u_vec->size[2]][u_vec->size[3]]) u_vec->data;
 
   if (rec_vec->size[0]*rec_vec->size[1] > 0 && p_rec_M - p_rec_m + 1 > 0)
   {
@@ -240,4 +287,22 @@ void kernel2(const float o_x, const float o_y, const float o_z, struct dataobj *
       rec[time][p_rec] = sum;
     }
   }
+}
+
+
+// Utilities
+
+
+struct dataobj* make_dataobj_device(struct dataobj * in, void * d_data)
+{
+  struct dataobj *out = (struct dataobj*) malloc(sizeof(struct dataobj));
+  out->data = d_data;
+  out->size = in->size;
+  out->npsize = in->npsize;
+  out->dsize = in->dsize;
+  out->hsize = in->hsize;
+  out->hofs = in->hofs;
+  out->oofs = in->oofs;
+
+  return out;
 }
