@@ -4,12 +4,13 @@ import cgen
 
 from devito.ir.iet import (Expression, List, Prodder, FindNodes, FindSymbols,
                            Transformer, make_efunc, compose_nodes, filter_iterations,
-                           retrieve_iteration_tree)
+                           retrieve_iteration_tree, IsPerfectIteration)
 from devito.passes.iet.engine import iet_pass
 from devito.tools import flatten, is_integer, split
 from devito.logger import warning
 
-__all__ = ['avoid_denormals', 'hoist_prodders', 'relax_incr_dimensions', 'is_on_device']
+__all__ = ['avoid_denormals', 'hoist_prodders', 'relax_incr_dimensions',
+           'elementify', 'is_on_device']
 
 
 @iet_pass
@@ -114,6 +115,35 @@ def relax_incr_dimensions(iet, **kwargs):
             calls.append(efunc.make_call(dynamic_args_mapper))
 
         mapper[root] = List(body=calls)
+
+    iet = Transformer(mapper).visit(iet)
+
+    return iet, {'efuncs': efuncs}
+
+
+@iet_pass
+def elementify(iet, **kwargs):
+    sregistry = kwargs['sregistry']
+
+    efuncs = []
+    mapper = {}
+    for tree in retrieve_iteration_tree(iet):
+        iterations = [i for i in tree if i.is_ParallelRelaxed]
+        if not iterations:
+            continue
+
+        root = iterations[0]
+        if root in mapper:
+            continue
+
+        #TODO: This is work in progress...
+        assert IsPerfectIteration().visit(root)
+
+        name = sregistry.make_name(prefix="kernel")
+        efunc = make_efunc(name, root)
+
+        mapper[root] = efunc.make_call()
+        efuncs.append(efunc)
 
     iet = Transformer(mapper).visit(iet)
 
