@@ -10,7 +10,7 @@ from devito.tools import flatten, is_integer, split
 from devito.logger import warning
 
 __all__ = ['avoid_denormals', 'hoist_prodders', 'relax_incr_dimensions',
-           'elementify', 'is_on_device']
+           'elementify', 'is_on_device', 'restrict_with_cpp']
 
 
 @iet_pass
@@ -30,6 +30,14 @@ def avoid_denormals(iet):
               cgen.Line())
     iet = iet._rebuild(body=(List(header=header),) + iet.body)
     return iet, {'includes': ('xmmintrin.h', 'pmmintrin.h')}
+
+
+@iet_pass
+def restrict_with_cpp(iet):
+    if iet.is_ElementalFunction:
+        return iet, {}
+
+    return iet, {'headers': [('restrict', '__restrict')]}
 
 
 @iet_pass
